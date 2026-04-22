@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import maplibregl from "maplibre-gl";
+import * as THREE from "three";
 
 import { useMap } from "../hooks/useMap";
 import { getGeojsonData } from "../services/api";
@@ -10,6 +11,109 @@ import { fetchNearbyNodes } from "../services/FetchGraphAPI";
 import { dijkstra, findClosestNode } from "../utils/RouteFunctions";
 import { useParams } from "react-router-dom";
 import { loadVenueData } from "../services/venueApi";
+
+const getPolygonCenter = (geometry) => {
+  const ring =
+    geometry?.type === "Polygon"
+      ? geometry.coordinates?.[0]
+      : geometry?.type === "MultiPolygon"
+      ? geometry.coordinates?.[0]?.[0]
+      : null;
+
+  if (!ring?.length) return null;
+
+  let sumLng = 0;
+  let sumLat = 0;
+  let count = 0;
+  for (const point of ring) {
+    if (!Array.isArray(point) || point.length < 2) continue;
+    sumLng += point[0];
+    sumLat += point[1];
+    count += 1;
+  }
+
+  if (!count) return null;
+  return [sumLng / count, sumLat / count];
+};
+
+const getPolygonMinDimensionMeters = (geometry) => {
+  const ring =
+    geometry?.type === "Polygon"
+      ? geometry.coordinates?.[0]
+      : geometry?.type === "MultiPolygon"
+      ? geometry.coordinates?.[0]?.[0]
+      : null;
+
+  if (!ring?.length) return 0;
+
+  let minLng = Infinity;
+  let minLat = Infinity;
+  let maxLng = -Infinity;
+  let maxLat = -Infinity;
+
+  for (const point of ring) {
+    if (!Array.isArray(point) || point.length < 2) continue;
+    minLng = Math.min(minLng, point[0]);
+    maxLng = Math.max(maxLng, point[0]);
+    minLat = Math.min(minLat, point[1]);
+    maxLat = Math.max(maxLat, point[1]);
+  }
+
+  if (!isFinite(minLng) || !isFinite(minLat)) return 0;
+
+  const centerLat = (minLat + maxLat) / 2;
+  const metersPerDegLat = 111320;
+  const metersPerDegLng = 111320 * Math.cos((centerLat * Math.PI) / 180);
+  const widthM = Math.abs(maxLng - minLng) * metersPerDegLng;
+  const heightM = Math.abs(maxLat - minLat) * metersPerDegLat;
+  return Math.min(widthM, heightM);
+};
+
+const getPolygonDimensionsMeters = (geometry) => {
+  const ring =
+    geometry?.type === "Polygon"
+      ? geometry.coordinates?.[0]
+      : geometry?.type === "MultiPolygon"
+      ? geometry.coordinates?.[0]?.[0]
+      : null;
+
+  if (!ring?.length) return { widthM: 0, heightM: 0 };
+
+  let minLng = Infinity;
+  let minLat = Infinity;
+  let maxLng = -Infinity;
+  let maxLat = -Infinity;
+
+  for (const point of ring) {
+    if (!Array.isArray(point) || point.length < 2) continue;
+    minLng = Math.min(minLng, point[0]);
+    maxLng = Math.max(maxLng, point[0]);
+    minLat = Math.min(minLat, point[1]);
+    maxLat = Math.max(maxLat, point[1]);
+  }
+
+  if (!isFinite(minLng) || !isFinite(minLat)) return { widthM: 0, heightM: 0 };
+
+  const centerLat = (minLat + maxLat) / 2;
+  const metersPerDegLat = 111320;
+  const metersPerDegLng = 111320 * Math.cos((centerLat * Math.PI) / 180);
+  const widthM = Math.abs(maxLng - minLng) * metersPerDegLng;
+  const heightM = Math.abs(maxLat - minLat) * metersPerDegLat;
+  return { widthM, heightM };
+};
+
+const getFeatureTopHeight = (props = {}) => {
+  const baseHeight = Number(props.baseHeight ?? 0) || 0;
+  const type = String(props.type || "").toLowerCase();
+  const parsedHeight = Number(props.height);
+  const hasValidHeight = Number.isFinite(parsedHeight) && parsedHeight > 0;
+
+  if (type === "wall") return baseHeight + (hasValidHeight ? parsedHeight : 4);
+  if (type === "booth") return baseHeight + 2;
+  if (type === "green area" || type === "green area | pots") return baseHeight + 0.2;
+  return baseHeight + (hasValidHeight ? parsedHeight : 3);
+};
+
 export default function IndoorMap() {
   const { mapRef, containerRef, ready } = useMap();
 
@@ -72,7 +176,7 @@ const [destResults, setDestResults] = useState([]);
         (f) => (f.properties?.floor ?? 0) === floor
       );
 
-const { rooms, boundaries, animals, sections } =
+const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
   splitFeatures(floorFeatures);
 
       // 🔥 Remove old markers
@@ -82,14 +186,24 @@ const { rooms, boundaries, animals, sections } =
       // 🔥 CLEAN layers
       const layers = map.getStyle()?.layers || [];
       layers.forEach((l) => {
-        if (l.id.startsWith("floor_") || l.id.startsWith("animal")) {
+        if (
+          l.id.startsWith("floor_") ||
+          l.id.startsWith("animal") ||
+          l.id.startsWith("sponsor") ||
+          l.id.startsWith("exhibitor")
+        ) {
           if (map.getLayer(l.id)) map.removeLayer(l.id);
         }
       });
 
       const sources = map.getStyle()?.sources || {};
       Object.keys(sources).forEach((id) => {
-        if (id.startsWith("floor_") || id === "animal-source") {
+        if (
+          id.startsWith("floor_") ||
+          id === "animal-source" ||
+          id.startsWith("sponsor") ||
+          id.startsWith("exhibitor")
+        ) {
           if (map.getSource(id)) map.removeSource(id);
         }
       });
@@ -416,6 +530,352 @@ const { rooms, boundaries, animals, sections } =
           "icon-offset": [0, 20],
         },
       });
+
+      // 💼 SPONSOR LOGOS AS 3D PLANES ON POLYGON TOP (Z=3) + NAMES
+      const sponsorLogoPlanes = [];
+      const sponsorNameFeatures = [];
+      const textureLoader = new THREE.TextureLoader();
+      textureLoader.setCrossOrigin("anonymous");
+      const textureCache = new Map();
+
+      const polygonLookup = new Map();
+      for (const feature of floorFeatures) {
+        const geometryType = feature.geometry?.type;
+        if (geometryType !== "Polygon" && geometryType !== "MultiPolygon") continue;
+
+        const keys = [
+          feature.id,
+          feature._id,
+          feature.properties?.id,
+          feature.properties?._id,
+        ].filter(Boolean);
+
+        keys.forEach((key) => polygonLookup.set(String(key), feature));
+      }
+
+      for (const pointFeature of sponsorPoints) {
+        const p = pointFeature.properties || {};
+        const logo = p.sponsorRef?.logo_url;
+        if (!logo) continue;
+
+        const polygonIds = [
+          ...(p.associatedPolygons || []),
+          ...(pointFeature.associatedPolygons || []),
+        ].map(String);
+
+        const sponsorName = p.name || p.sponsorRef?.name || "";
+        let labelPlaced = false;
+
+        for (const polyId of polygonIds) {
+          const linkedPolygon = polygonLookup.get(polyId);
+          if (!linkedPolygon) continue;
+
+          const center = getPolygonCenter(linkedPolygon.geometry);
+          if (!center) continue;
+
+          const minDimMeters = getPolygonMinDimensionMeters(linkedPolygon.geometry);
+          const { widthM, heightM } = getPolygonDimensionsMeters(linkedPolygon.geometry);
+          const roofZ = getFeatureTopHeight(linkedPolygon.properties) + 0.06;
+
+          if (!textureCache.has(logo)) {
+            try {
+              const texture = await textureLoader.loadAsync(logo);
+              textureCache.set(logo, texture);
+            } catch (e) {
+              textureCache.set(logo, null);
+            }
+          }
+
+          const texture = textureCache.get(logo);
+          if (texture) {
+            const aspect =
+              texture?.image?.width && texture?.image?.height
+                ? texture.image.width / texture.image.height
+                : 1;
+
+            const maxWidth = Math.max(0.8, widthM * 0.9 || minDimMeters * 0.9 || 0.8);
+            const maxHeight = Math.max(0.8, heightM * 0.9 || minDimMeters * 0.9 || 0.8);
+            let scaleX = maxWidth;
+            let scaleY = maxHeight;
+
+            if (aspect >= 1) {
+              scaleY = Math.min(maxHeight, maxWidth / aspect);
+            } else {
+              scaleX = Math.min(maxWidth, maxHeight * aspect);
+            }
+
+            sponsorLogoPlanes.push({
+              center,
+              texture,
+              scaleX,
+              scaleY,
+              z: roofZ,
+            });
+          }
+
+          if (!labelPlaced && sponsorName) {
+            sponsorNameFeatures.push({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [center[0], center[1], roofZ] },
+              properties: { name: sponsorName },
+            });
+            labelPlaced = true;
+          }
+        }
+
+        if (!labelPlaced && sponsorName) {
+          const fallbackCoords = p.centroid || pointFeature.geometry?.coordinates;
+          if (fallbackCoords) {
+            sponsorNameFeatures.push({
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [fallbackCoords[0], fallbackCoords[1], 3] },
+              properties: { name: sponsorName },
+            });
+          }
+        }
+      }
+
+      const sponsorLogoLayerId = `sponsor-logo-3d-${floor}`;
+      if (sponsorLogoPlanes.length) {
+        map.addLayer({
+          id: sponsorLogoLayerId,
+          type: "custom",
+          renderingMode: "3d",
+          onAdd: function onAddCustom(_map, gl) {
+            this.camera = new THREE.Camera();
+            this.scene = new THREE.Scene();
+            this.renderer = new THREE.WebGLRenderer({
+              canvas: _map.getCanvas(),
+              context: gl,
+              antialias: true,
+            });
+            this.renderer.autoClear = false;
+            this.mesh = new THREE.Mesh(
+              new THREE.PlaneGeometry(1, 1),
+              new THREE.MeshBasicMaterial({
+                side: THREE.DoubleSide,
+                transparent: true,
+                depthTest: false,
+                depthWrite: false,
+              })
+            );
+            this.scene.add(this.mesh);
+
+            this.planes = sponsorLogoPlanes.map(({ center, texture, scaleX, scaleY, z }) => {
+              const mercator = maplibregl.MercatorCoordinate.fromLngLat(
+                { lng: center[0], lat: center[1] },
+                z
+              );
+              const meterScale = mercator.meterInMercatorCoordinateUnits();
+              return {
+                texture,
+                tx: mercator.x,
+                ty: mercator.y,
+                tz: mercator.z,
+                sx: meterScale * scaleX,
+                sy: meterScale * scaleY,
+              };
+            });
+          },
+          render: function renderCustom(gl, matrix) {
+            const base = new THREE.Matrix4().fromArray(matrix);
+            const rotationZ = new THREE.Matrix4().makeRotationAxis(
+              new THREE.Vector3(0, 0, 1),
+              Math.PI / 2
+            );
+
+            this.renderer.state.reset();
+            this.renderer.clearDepth();
+
+            this.planes.forEach((plane) => {
+              this.mesh.material.map = plane.texture;
+              this.mesh.material.needsUpdate = true;
+
+              const modelMatrix = new THREE.Matrix4()
+                .makeTranslation(plane.tx, plane.ty, plane.tz)
+                .multiply(rotationZ)
+                .scale(
+                  new THREE.Vector3(
+                    plane.sx,
+                    -plane.sy,
+                    plane.sx
+                  )
+                );
+              this.camera.projectionMatrix = base.clone().multiply(modelMatrix);
+              this.renderer.render(this.scene, this.camera);
+            });
+
+            map.triggerRepaint();
+          },
+          onRemove: function onRemoveCustom() {
+            this.mesh?.geometry?.dispose?.();
+            this.mesh?.material?.dispose?.();
+            this.renderer?.dispose?.();
+          },
+        });
+      }
+
+      // 🏢 EXHIBITOR LOGOS AS 3D PLANES ON POLYGON TOP (same as sponsor)
+      const exhibitorLogoPlanes = [];
+      for (const pointFeature of exhibitorPoints) {
+        const p = pointFeature.properties || {};
+        const logo = p.exhibitorRef?.brandingDetails?.companyLogo;
+        if (!logo) continue;
+
+        const polygonIds = [
+          ...(p.associatedPolygons || []),
+          ...(pointFeature.associatedPolygons || []),
+        ].map(String);
+
+        for (const polyId of polygonIds) {
+          const linkedPolygon = polygonLookup.get(polyId);
+          if (!linkedPolygon) continue;
+
+          const center = getPolygonCenter(linkedPolygon.geometry);
+          if (!center) continue;
+
+          const minDimMeters = getPolygonMinDimensionMeters(linkedPolygon.geometry);
+          const { widthM, heightM } = getPolygonDimensionsMeters(linkedPolygon.geometry);
+          const roofZ = getFeatureTopHeight(linkedPolygon.properties) + 0.06;
+
+          if (!textureCache.has(logo)) {
+            try {
+              const texture = await textureLoader.loadAsync(logo);
+              textureCache.set(logo, texture);
+            } catch (e) {
+              textureCache.set(logo, null);
+            }
+          }
+
+          const texture = textureCache.get(logo);
+          if (!texture) continue;
+
+          const aspect =
+            texture?.image?.width && texture?.image?.height
+              ? texture.image.width / texture.image.height
+              : 1;
+
+          const maxWidth = Math.max(0.8, widthM * 0.9 || minDimMeters * 0.9 || 0.8);
+          const maxHeight = Math.max(0.8, heightM * 0.9 || minDimMeters * 0.9 || 0.8);
+          let scaleX = maxWidth;
+          let scaleY = maxHeight;
+
+          if (aspect >= 1) {
+            scaleY = Math.min(maxHeight, maxWidth / aspect);
+          } else {
+            scaleX = Math.min(maxWidth, maxHeight * aspect);
+          }
+
+          exhibitorLogoPlanes.push({
+            center,
+            texture,
+            scaleX,
+            scaleY,
+            z: roofZ,
+          });
+        }
+      }
+
+      const exhibitorLogoLayerId = `exhibitor-logo-3d-${floor}`;
+      if (exhibitorLogoPlanes.length) {
+        map.addLayer({
+          id: exhibitorLogoLayerId,
+          type: "custom",
+          renderingMode: "3d",
+          onAdd: function onAddCustom(_map, gl) {
+            this.camera = new THREE.Camera();
+            this.scene = new THREE.Scene();
+            this.renderer = new THREE.WebGLRenderer({
+              canvas: _map.getCanvas(),
+              context: gl,
+              antialias: true,
+            });
+            this.renderer.autoClear = false;
+            this.mesh = new THREE.Mesh(
+              new THREE.PlaneGeometry(1, 1),
+              new THREE.MeshBasicMaterial({
+                side: THREE.DoubleSide,
+                transparent: true,
+                depthTest: false,
+                depthWrite: false,
+              })
+            );
+            this.scene.add(this.mesh);
+
+            this.planes = exhibitorLogoPlanes.map(({ center, texture, scaleX, scaleY, z }) => {
+              const mercator = maplibregl.MercatorCoordinate.fromLngLat(
+                { lng: center[0], lat: center[1] },
+                z
+              );
+              const meterScale = mercator.meterInMercatorCoordinateUnits();
+              return {
+                texture,
+                tx: mercator.x,
+                ty: mercator.y,
+                tz: mercator.z,
+                sx: meterScale * scaleX,
+                sy: meterScale * scaleY,
+              };
+            });
+          },
+          render: function renderCustom(gl, matrix) {
+            const base = new THREE.Matrix4().fromArray(matrix);
+            const rotationZ = new THREE.Matrix4().makeRotationAxis(
+              new THREE.Vector3(0, 0, 1),
+              Math.PI / 2
+            );
+
+            this.renderer.state.reset();
+            this.renderer.clearDepth();
+
+            this.planes.forEach((plane) => {
+              this.mesh.material.map = plane.texture;
+              this.mesh.material.needsUpdate = true;
+
+              const modelMatrix = new THREE.Matrix4()
+                .makeTranslation(plane.tx, plane.ty, plane.tz)
+                .multiply(rotationZ)
+                .scale(new THREE.Vector3(plane.sx, -plane.sy, plane.sx));
+              this.camera.projectionMatrix = base.clone().multiply(modelMatrix);
+              this.renderer.render(this.scene, this.camera);
+            });
+
+            map.triggerRepaint();
+          },
+          onRemove: function onRemoveCustom() {
+            this.mesh?.geometry?.dispose?.();
+            this.mesh?.material?.dispose?.();
+            this.renderer?.dispose?.();
+          },
+        });
+      }
+
+      // map.addSource("sponsor-name-source", {
+      //   type: "geojson",
+      //   data: {
+      //     type: "FeatureCollection",
+      //     features: sponsorNameFeatures,
+      //   },
+      // });
+
+      // map.addLayer({
+      //   id: "sponsor-name",
+      //   type: "symbol",
+      //   source: "sponsor-name-source",
+      //   minzoom: 17,
+      //   layout: {
+      //     "text-field": ["get", "name"],
+      //     "text-size": 11,
+      //     "text-anchor": "top",
+      //     "text-offset": [0, 1.1],
+      //     "text-allow-overlap": false,
+      //   },
+      //   paint: {
+      //     "text-color": "#111",
+      //     "text-halo-color": "#fff",
+      //     "text-halo-width": 1,
+      //   },
+      // });
     };
 
     if (!map.isStyleLoaded()) {

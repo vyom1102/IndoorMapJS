@@ -3,6 +3,8 @@ export const splitFeatures = (features) => {
   const boundaries = [];
   const animals = [];
   const sections = [];
+  const sponsorPoints = [];
+  const exhibitorPoints = [];
 
   for (const f of features) {
     const p = f.properties || {};
@@ -13,6 +15,13 @@ export const splitFeatures = (features) => {
       boundaries.push(f);
     } else if (p.type === "Section") {
       sections.push(f); // 🔥 NEW
+    } else if (f.geometry?.type === "Point" && p.sponsorRef?.logo_url) {
+      sponsorPoints.push(f);
+    } else if (
+      f.geometry?.type === "Point" &&
+      p.exhibitorRef?.brandingDetails?.companyLogo
+    ) {
+      exhibitorPoints.push(f);
     } else if (p.animalRef) {
       animals.push(f);
     } else {
@@ -20,5 +29,12 @@ export const splitFeatures = (features) => {
     }
   }
 
-  return { rooms, boundaries, animals, sections };
+  return {
+    rooms,
+    boundaries,
+    animals,
+    sections,
+    sponsorPoints,
+    exhibitorPoints,
+  };
 };
