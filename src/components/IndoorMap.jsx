@@ -145,15 +145,89 @@ const getFeatureTopHeight = (props = {}) => {
   return baseHeight + (hasValidHeight ? parsedHeight : 3);
 };
 
+
+
 const getFeatureAnchorCoordinates = (feature) => {
   const geometryType = feature?.geometry?.type;
   if (geometryType === "Point") return feature.geometry?.coordinates || null;
   if (geometryType === "Polygon" || geometryType === "MultiPolygon") {
-    return getPolygonCenter(feature.geometry);
+    // ✅ Use pole of inaccessibility instead of centroid
+    return getPoleOfInaccessibility(feature.geometry);
   }
   return null;
 };
+// Add this utility function at the top of your file (after imports)
+const getPoleOfInaccessibility = (geometry) => {
+  const ring =
+    geometry?.type === "Polygon"
+      ? geometry.coordinates?.[0]
+      : geometry?.type === "MultiPolygon"
+      ? geometry.coordinates?.[0]?.[0]
+      : null;
 
+  if (!ring?.length) return null;
+
+  // Get bounding box
+  let minLng = Infinity, minLat = Infinity;
+  let maxLng = -Infinity, maxLat = -Infinity;
+  for (const [lng, lat] of ring) {
+    minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng);
+    minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
+  }
+
+  const width = maxLng - minLng;
+  const height = maxLat - minLat;
+  const cellSize = Math.min(width, height) / 16; // precision grid
+  if (cellSize === 0) return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
+
+  // Point-in-polygon check (ray casting)
+  const pointInPolygon = (x, y, poly) => {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i];
+      const [xj, yj] = poly[j];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  };
+
+  // Distance from point to polygon edge (minimum)
+  const pointToSegmentDist = (px, py, ax, ay, bx, by) => {
+    const dx = bx - ax, dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    let t = lenSq > 0 ? ((px - ax) * dx + (py - ay) * dy) / lenSq : 0;
+    t = Math.max(0, Math.min(1, t));
+    const nearX = ax + t * dx, nearY = ay + t * dy;
+    return Math.sqrt((px - nearX) ** 2 + (py - nearY) ** 2);
+  };
+
+  const distToPolygon = (x, y, poly) => {
+    let minDist = Infinity;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const d = pointToSegmentDist(x, y, poly[j][0], poly[j][1], poly[i][0], poly[i][1]);
+      if (d < minDist) minDist = d;
+    }
+    return pointInPolygon(x, y, poly) ? minDist : -minDist;
+  };
+
+  // Grid search for best cell (highest distance from edges)
+  let bestDist = -Infinity;
+  let bestPoint = [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
+
+  for (let x = minLng + cellSize / 2; x < maxLng; x += cellSize) {
+    for (let y = minLat + cellSize / 2; y < maxLat; y += cellSize) {
+      const d = distToPolygon(x, y, ring);
+      if (d > bestDist) {
+        bestDist = d;
+        bestPoint = [x, y];
+      }
+    }
+  }
+
+  return bestPoint;
+};
 const getObjectFileUrl = (objectFile) => {
   if (!objectFile) return null;
   if (/^https?:\/\//i.test(objectFile)) return objectFile;
@@ -654,7 +728,7 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
           const linkedPolygon = polygonLookup.get(polyId);
           if (!linkedPolygon) continue;
 
-          const center = getPolygonCenter(linkedPolygon.geometry);
+          const center = getPoleOfInaccessibility(linkedPolygon.geometry);
           if (!center) continue;
 
           const minDimMeters = getPolygonMinDimensionMeters(linkedPolygon.geometry);
@@ -845,7 +919,7 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
           const linkedPolygon = polygonLookup.get(polyId);
           if (!linkedPolygon) continue;
 
-          const center = getPolygonCenter(linkedPolygon.geometry);
+          const center = getPoleOfInaccessibility(linkedPolygon.geometry);
           if (!center) continue;
 
           const minDimMeters = getPolygonMinDimensionMeters(linkedPolygon.geometry);
