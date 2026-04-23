@@ -749,7 +749,7 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
             const aspect =
               texture?.image?.width && texture?.image?.height
                 ? texture.image.width / texture.image.height
-                : 1;
+                : 0.8;
 
             // const maxWidth = Math.max(0.8, widthM * 0.75 || minDimMeters * 0.75 || 0.8);
             // const maxHeight = Math.max(0.8, heightM * 0.75 || minDimMeters * 0.75 || 0.8);
@@ -761,8 +761,8 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
             // } else {
             //   scaleX = Math.min(maxWidth, maxHeight * aspect);
             // }
-            const maxWidth = Math.max(0.3, widthM * 0.75);
-            const maxHeight = Math.max(0.3, heightM * 0.75);
+            const maxWidth = Math.max(0.3, widthM * 0.65);
+            const maxHeight = Math.max(0.3, heightM * 0.65);
 
             let scaleX, scaleY;
             if (maxWidth / aspect <= maxHeight) {
@@ -941,7 +941,7 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
           const aspect =
             texture?.image?.width && texture?.image?.height
               ? texture.image.width / texture.image.height
-              : 1;
+              : 0.8;
 
           // const maxWidth = Math.max(0.8, widthM * 0.9 || minDimMeters * 0.9 || 0.8);
           // const maxHeight = Math.max(0.8, heightM * 0.9 || minDimMeters * 0.9 || 0.8);
@@ -955,8 +955,8 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
           // }
 
           // AFTER (exhibitor)
-        const maxWidth = Math.max(0.3, widthM * 0.85);
-        const maxHeight = Math.max(0.3, heightM * 0.85);
+        const maxWidth = Math.max(0.3, widthM * 0.65);
+        const maxHeight = Math.max(0.3, heightM * 0.65);
 
         let scaleX, scaleY;
         if (maxWidth / aspect <= maxHeight) {
