@@ -12,6 +12,9 @@ import { dijkstra, findClosestNode } from "../utils/RouteFunctions";
 import { useParams } from "react-router-dom";
 import { loadVenueData } from "../services/venueApi";
 
+const baseUrl = import.meta.env.VITE_BASE_URL || "";
+const FIXED_GLB_SIZE_PX = 80;
+
 const getPolygonCenter = (geometry) => {
   const ring =
     geometry?.type === "Polygon"
@@ -102,6 +105,34 @@ const getPolygonDimensionsMeters = (geometry) => {
   return { widthM, heightM };
 };
 
+const getPolygonRotationRad = (geometry) => {
+  const ring =
+    geometry?.type === "Polygon"
+      ? geometry.coordinates?.[0]
+      : geometry?.type === "MultiPolygon"
+      ? geometry.coordinates?.[0]?.[0]
+      : null;
+
+  if (!Array.isArray(ring) || ring.length < 2) return 0;
+
+  let longest = 0;
+  let angleRad = 0;
+  for (let i = 0; i < ring.length - 1; i += 1) {
+    const a = ring[i];
+    const b = ring[i + 1];
+    if (!Array.isArray(a) || !Array.isArray(b)) continue;
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len = dx * dx + dy * dy;
+    if (len > longest) {
+      longest = len;
+      angleRad = Math.atan2(dy, dx);
+    }
+  }
+
+  return -angleRad;
+};
+
 const getFeatureTopHeight = (props = {}) => {
   const baseHeight = Number(props.baseHeight ?? 0) || 0;
   const type = String(props.type || "").toLowerCase();
@@ -112,6 +143,24 @@ const getFeatureTopHeight = (props = {}) => {
   if (type === "booth") return baseHeight + 2;
   if (type === "green area" || type === "green area | pots") return baseHeight + 0.2;
   return baseHeight + (hasValidHeight ? parsedHeight : 3);
+};
+
+const getFeatureAnchorCoordinates = (feature) => {
+  const geometryType = feature?.geometry?.type;
+  if (geometryType === "Point") return feature.geometry?.coordinates || null;
+  if (geometryType === "Polygon" || geometryType === "MultiPolygon") {
+    return getPolygonCenter(feature.geometry);
+  }
+  return null;
+};
+
+const getObjectFileUrl = (objectFile) => {
+  if (!objectFile) return null;
+  if (/^https?:\/\//i.test(objectFile)) return objectFile;
+
+  const cleanBase = String(baseUrl).replace(/\/+$/, "");
+  const cleanPath = String(objectFile).replace(/^\/+/, "");
+  return `${cleanBase}/uploads/${cleanPath}`;
 };
 
 export default function IndoorMap() {
@@ -434,13 +483,17 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
             <model-viewer
               src="${model}"
               autoplay
-              camera-controls
-              disable-zoom
-              style="width:80px;height:80px;"
+              interaction-prompt="none"
+              style="width:${FIXED_GLB_SIZE_PX}px;height:${FIXED_GLB_SIZE_PX}px;pointer-events:none;"
             ></model-viewer>
           `;
 
-          const marker = new maplibregl.Marker({ element: el })
+          const marker = new maplibregl.Marker({
+            element: el,
+            // anchor: "center",
+            // pitchAlignment: "viewport",
+            // rotationAlignment: "viewport",
+          })
             .setLngLat(coords)
             .addTo(map);
 
@@ -485,6 +538,37 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
             pill: pillId,
           },
         });
+      }
+
+      // 🗿 LANDMARK GLB OBJECTS (objectFile -> baseUrl/uploads/objectFile)
+      for (const feature of floorFeatures) {
+        const p = feature.properties || {};
+        if (!p.objectFile) continue;
+        if (p.animalRef?.model_3d) continue;
+
+        const modelUrl = getObjectFileUrl(p.objectFile);
+        const coords = p.centroid || getFeatureAnchorCoordinates(feature);
+        if (!modelUrl || !coords) continue;
+
+        const el = document.createElement("div");
+        el.innerHTML = `
+          <model-viewer
+            src="${modelUrl}"
+            autoplay
+            interaction-prompt="none"
+            style="width:${FIXED_GLB_SIZE_PX}px;height:${FIXED_GLB_SIZE_PX}px;pointer-events:none;"
+          ></model-viewer>
+        `;
+
+        const marker = new maplibregl.Marker({
+          element: el,
+          anchor: "center",
+          pitchAlignment: "viewport",
+          rotationAlignment: "viewport",
+        })
+          .setLngLat(coords)
+          .addTo(map);
+        markersRef.current.push(marker);
       }
 
       // 🔥 Animal source
@@ -593,23 +677,37 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
                 ? texture.image.width / texture.image.height
                 : 1;
 
-            const maxWidth = Math.max(0.8, widthM * 0.9 || minDimMeters * 0.9 || 0.8);
-            const maxHeight = Math.max(0.8, heightM * 0.9 || minDimMeters * 0.9 || 0.8);
-            let scaleX = maxWidth;
-            let scaleY = maxHeight;
+            // const maxWidth = Math.max(0.8, widthM * 0.75 || minDimMeters * 0.75 || 0.8);
+            // const maxHeight = Math.max(0.8, heightM * 0.75 || minDimMeters * 0.75 || 0.8);
+            // let scaleX = maxWidth;
+            // let scaleY = maxHeight;
 
-            if (aspect >= 1) {
-              scaleY = Math.min(maxHeight, maxWidth / aspect);
+            // if (aspect >= 1) {
+            //   scaleY = Math.min(maxHeight, maxWidth / aspect);
+            // } else {
+            //   scaleX = Math.min(maxWidth, maxHeight * aspect);
+            // }
+            const maxWidth = Math.max(0.3, widthM * 0.75);
+            const maxHeight = Math.max(0.3, heightM * 0.75);
+
+            let scaleX, scaleY;
+            if (maxWidth / aspect <= maxHeight) {
+              scaleX = maxWidth;
+              scaleY = maxWidth / aspect;
             } else {
-              scaleX = Math.min(maxWidth, maxHeight * aspect);
+              scaleY = maxHeight;
+              scaleX = maxHeight * aspect;
             }
-
+            // Hard clamp — logo never escapes polygon footprint
+            scaleX = Math.min(scaleX, maxWidth);
+            scaleY = Math.min(scaleY, maxHeight);
             sponsorLogoPlanes.push({
               center,
               texture,
               scaleX,
               scaleY,
               z: roofZ,
+              rot: getPolygonRotationRad(linkedPolygon.geometry),
             });
           }
 
@@ -661,7 +759,7 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
             );
             this.scene.add(this.mesh);
 
-            this.planes = sponsorLogoPlanes.map(({ center, texture, scaleX, scaleY, z }) => {
+            this.planes = sponsorLogoPlanes.map(({ center, texture, scaleX, scaleY, z, rot }) => {
               const mercator = maplibregl.MercatorCoordinate.fromLngLat(
                 { lng: center[0], lat: center[1] },
                 z
@@ -674,15 +772,12 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
                 tz: mercator.z,
                 sx: meterScale * scaleX,
                 sy: meterScale * scaleY,
+                rot: rot || 0,
               };
             });
           },
           render: function renderCustom(gl, matrix) {
             const base = new THREE.Matrix4().fromArray(matrix);
-            const rotationZ = new THREE.Matrix4().makeRotationAxis(
-              new THREE.Vector3(0, 0, 1),
-              Math.PI / 2
-            );
 
             this.renderer.state.reset();
             this.renderer.clearDepth();
@@ -690,17 +785,36 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
             this.planes.forEach((plane) => {
               this.mesh.material.map = plane.texture;
               this.mesh.material.needsUpdate = true;
+              const rotationX = new THREE.Matrix4().makeRotationAxis(
+              new THREE.Vector3(1, 0, 0),
+              Math.PI  // flip to face upward (plane faces +Z)
+            );
 
-              const modelMatrix = new THREE.Matrix4()
-                .makeTranslation(plane.tx, plane.ty, plane.tz)
-                .multiply(rotationZ)
-                .scale(
-                  new THREE.Vector3(
-                    plane.sx,
-                    -plane.sy,
-                    plane.sx
-                  )
-                );
+            const rotationZ = new THREE.Matrix4().makeRotationAxis(
+              new THREE.Vector3(0, 0, 1),
+              plane.rot || 0  // align to polygon's longest edge, no extra offset
+            );
+
+            const modelMatrix = new THREE.Matrix4()
+              .makeTranslation(plane.tx, plane.ty, plane.tz)
+              .multiply(rotationZ)
+              .multiply(rotationX)
+              .scale(new THREE.Vector3(plane.sx, plane.sy, 1));
+              // const rotationZ = new THREE.Matrix4().makeRotationAxis(
+              //   new THREE.Vector3(0, 0, 1),
+              //   Math.PI / 2 + (plane.rot || 0)
+              // );
+
+              // const modelMatrix = new THREE.Matrix4()
+              //   .makeTranslation(plane.tx, plane.ty, plane.tz)
+              //   .multiply(rotationZ)
+              //   .scale(
+              //     new THREE.Vector3(
+              //       plane.sx,
+              //       -plane.sy,
+              //       plane.sx
+              //     )
+              //   );
               this.camera.projectionMatrix = base.clone().multiply(modelMatrix);
               this.renderer.render(this.scene, this.camera);
             });
@@ -755,23 +869,38 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
               ? texture.image.width / texture.image.height
               : 1;
 
-          const maxWidth = Math.max(0.8, widthM * 0.9 || minDimMeters * 0.9 || 0.8);
-          const maxHeight = Math.max(0.8, heightM * 0.9 || minDimMeters * 0.9 || 0.8);
-          let scaleX = maxWidth;
-          let scaleY = maxHeight;
+          // const maxWidth = Math.max(0.8, widthM * 0.9 || minDimMeters * 0.9 || 0.8);
+          // const maxHeight = Math.max(0.8, heightM * 0.9 || minDimMeters * 0.9 || 0.8);
+          // let scaleX = maxWidth;
+          // let scaleY = maxHeight;
 
-          if (aspect >= 1) {
-            scaleY = Math.min(maxHeight, maxWidth / aspect);
-          } else {
-            scaleX = Math.min(maxWidth, maxHeight * aspect);
-          }
+          // if (aspect >= 1) {
+          //   scaleY = Math.min(maxHeight, maxWidth / aspect);
+          // } else {
+          //   scaleX = Math.min(maxWidth, maxHeight * aspect);
+          // }
 
+          // AFTER (exhibitor)
+        const maxWidth = Math.max(0.3, widthM * 0.85);
+        const maxHeight = Math.max(0.3, heightM * 0.85);
+
+        let scaleX, scaleY;
+        if (maxWidth / aspect <= maxHeight) {
+          scaleX = maxWidth;
+          scaleY = maxWidth / aspect;
+        } else {
+          scaleY = maxHeight;
+          scaleX = maxHeight * aspect;
+        }
+        scaleX = Math.min(scaleX, maxWidth);
+        scaleY = Math.min(scaleY, maxHeight);
           exhibitorLogoPlanes.push({
             center,
             texture,
             scaleX,
             scaleY,
             z: roofZ,
+            rot: getPolygonRotationRad(linkedPolygon.geometry),
           });
         }
       }
@@ -802,7 +931,7 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
             );
             this.scene.add(this.mesh);
 
-            this.planes = exhibitorLogoPlanes.map(({ center, texture, scaleX, scaleY, z }) => {
+            this.planes = exhibitorLogoPlanes.map(({ center, texture, scaleX, scaleY, z, rot }) => {
               const mercator = maplibregl.MercatorCoordinate.fromLngLat(
                 { lng: center[0], lat: center[1] },
                 z
@@ -815,15 +944,12 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
                 tz: mercator.z,
                 sx: meterScale * scaleX,
                 sy: meterScale * scaleY,
+                rot: rot || 0,
               };
             });
           },
           render: function renderCustom(gl, matrix) {
             const base = new THREE.Matrix4().fromArray(matrix);
-            const rotationZ = new THREE.Matrix4().makeRotationAxis(
-              new THREE.Vector3(0, 0, 1),
-              Math.PI / 2
-            );
 
             this.renderer.state.reset();
             this.renderer.clearDepth();
@@ -831,11 +957,30 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
             this.planes.forEach((plane) => {
               this.mesh.material.map = plane.texture;
               this.mesh.material.needsUpdate = true;
+              const rotationX = new THREE.Matrix4().makeRotationAxis(
+              new THREE.Vector3(1, 0, 0),
+              Math.PI  // flip to face upward (plane faces +Z)
+            );
 
-              const modelMatrix = new THREE.Matrix4()
-                .makeTranslation(plane.tx, plane.ty, plane.tz)
-                .multiply(rotationZ)
-                .scale(new THREE.Vector3(plane.sx, -plane.sy, plane.sx));
+            const rotationZ = new THREE.Matrix4().makeRotationAxis(
+              new THREE.Vector3(0, 0, 1),
+              plane.rot || 0  // align to polygon's longest edge, no extra offset
+            );
+
+            const modelMatrix = new THREE.Matrix4()
+              .makeTranslation(plane.tx, plane.ty, plane.tz)
+              .multiply(rotationZ)
+              .multiply(rotationX)
+              .scale(new THREE.Vector3(plane.sx, plane.sy, 1));
+              // const rotationZ = new THREE.Matrix4().makeRotationAxis(
+              //   new THREE.Vector3(0, 0, 1),
+              //   Math.PI / 2 + (plane.rot || 0)
+              // );
+
+              // const modelMatrix = new THREE.Matrix4()
+              //   .makeTranslation(plane.tx, plane.ty, plane.tz)
+              //   .multiply(rotationZ)
+              //   .scale(new THREE.Vector3(plane.sx, -plane.sy, plane.sx));
               this.camera.projectionMatrix = base.clone().multiply(modelMatrix);
               this.renderer.render(this.scene, this.camera);
             });
