@@ -22,6 +22,13 @@ const ESCALATOR_MODEL_WIDTH_M = 1.1;
 const ESCALATOR_MODEL_HEIGHT_M = 1.7;
 const ESCALATOR_MODEL_ROTATION_OFFSET_RAD = Math.PI * 1.5;
 const ESCALATOR_MODEL_UPRIGHT_ROLL_RAD = Math.PI;
+const SITTING_AREA_MODEL_URL =
+  import.meta.env.VITE_SITTING_AREA_GLB_URL || "/assets/models/SittingArea.glb";
+const SITTING_AREA_MODEL_LENGTH_M = 5;
+const SITTING_AREA_MODEL_WIDTH_M = 1.5;
+const SITTING_AREA_MODEL_HEIGHT_M = 0.9;
+const SITTING_AREA_MODEL_ROTATION_OFFSET_RAD = Math.PI * 1.5;
+const SITTING_AREA_MODEL_UPRIGHT_ROLL_RAD = Math.PI;
 // Fixed pixel size (in metres equivalent) for boundary logos
 const BOUNDARY_LOGO_SIZE_M = 20;
 
@@ -149,6 +156,26 @@ const isEscalatorFeature = (feature) => {
   return type.includes("escalator");
 };
 
+const isSittingAreaFeature = (feature) => {
+  const p = feature?.properties || {};
+  const type = String(p.type || p.polygonType || p.subType || "").toLowerCase();
+  const name = String(p.name || "").toLowerCase();
+  return (
+    type.includes("sitting") ||
+    type.includes("sit") ||
+    type.includes("seating") ||
+    type.includes("seat") ||
+    type.includes("bench") ||
+    type.includes("waiting") ||
+    type.includes("sitting area") ||
+    name.includes("sitting area") ||
+    name.includes("seating") ||
+    name.includes("seat") ||
+    name.includes("bench") ||
+    name.includes("waiting")
+  );
+};
+
 const isPolygonFeature = (feature) => {
   const type = feature?.geometry?.type;
   return type === "Polygon" || type === "MultiPolygon";
@@ -158,8 +185,16 @@ const isEscalatorPolygonFeature = (feature) => {
   return isEscalatorFeature(feature) && isPolygonFeature(feature);
 };
 
+const isSittingAreaPolygonFeature = (feature) => {
+  return isSittingAreaFeature(feature) && isPolygonFeature(feature);
+};
+
 const getEscalatorModelUrl = (feature) => {
   return getObjectFileUrl(feature?.properties?.objectFile) || ESCALATOR_MODEL_URL;
+};
+
+const getSittingAreaModelUrl = (feature) => {
+  return getObjectFileUrl(feature?.properties?.objectFile) || SITTING_AREA_MODEL_URL;
 };
 
 // const getFeatureTopHeight = (props = {}) => {
@@ -422,14 +457,14 @@ const buildLogoPlaneLayer = (map, layerId, planes) => {
   });
 };
 
-const fitGltfToEscalatorFootprint = (object) => {
+const fitGltfToFootprint = (object, footprint) => {
   const box = new THREE.Box3().setFromObject(object);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
 
-  const scaleX = ESCALATOR_MODEL_WIDTH_M / Math.max(size.x, 0.001);
-  const scaleY = ESCALATOR_MODEL_HEIGHT_M / Math.max(size.y, 0.001);
-  const scaleZ = ESCALATOR_MODEL_LENGTH_M / Math.max(size.z, 0.001);
+  const scaleX = footprint.widthM / Math.max(size.x, 0.001);
+  const scaleY = footprint.heightM / Math.max(size.y, 0.001);
+  const scaleZ = footprint.lengthM / Math.max(size.z, 0.001);
   object.scale.set(scaleX, scaleY, scaleZ);
   object.position.set(
     -center.x * scaleX,
@@ -470,7 +505,7 @@ const buildGltfModelLayer = (map, layerId, modelUrl, placements) => {
         );
         const rotateZ = new THREE.Matrix4().makeRotationAxis(
           new THREE.Vector3(0, 0, 1),
-          (placement.rot || 0) + ESCALATOR_MODEL_ROTATION_OFFSET_RAD
+          (placement.rot || 0) + (placement.rotationOffsetRad || 0)
         );
         const rotateX = new THREE.Matrix4().makeRotationAxis(
           new THREE.Vector3(1, 0, 0),
@@ -478,7 +513,7 @@ const buildGltfModelLayer = (map, layerId, modelUrl, placements) => {
         );
         const uprightRoll = new THREE.Matrix4().makeRotationAxis(
           new THREE.Vector3(0, 0, 1),
-          ESCALATOR_MODEL_UPRIGHT_ROLL_RAD
+          placement.uprightRollRad || 0
         );
         const scale = mercator.meterInMercatorCoordinateUnits();
         const scaleMatrix = new THREE.Matrix4().makeScale(scale, -scale, scale);
@@ -489,6 +524,7 @@ const buildGltfModelLayer = (map, layerId, modelUrl, placements) => {
             .multiply(rotateX)
             .multiply(uprightRoll)
             .multiply(scaleMatrix),
+          footprint: placement.footprint,
         };
       });
 
@@ -497,7 +533,7 @@ const buildGltfModelLayer = (map, layerId, modelUrl, placements) => {
         (gltf) => {
           this.placements.forEach((placement) => {
             const model = gltf.scene.clone(true);
-            fitGltfToEscalatorFootprint(model);
+            fitGltfToFootprint(model, placement.footprint);
             model.visible = false;
             placement.model = model;
             this.scene.add(model);
@@ -731,6 +767,7 @@ const switchFloor = async (newFloor) => {
     "exhibitor-logo-3d-",
     "point-image-3d-",
     "escalator-model-3d-",
+    "sitting-area-model-3d-",
   ];
   allFloors.forEach((f) => {
     customLayerPrefixes.forEach((prefix) => {
@@ -762,7 +799,12 @@ const switchFloor = async (newFloor) => {
   const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
     splitFeatures(floorFeatures);
   const escalatorFeatures = floorFeatures.filter(isEscalatorPolygonFeature);
-  const renderableRooms = rooms.filter((feature) => !isEscalatorPolygonFeature(feature));
+  const sittingAreaFeatures = floorFeatures.filter(isSittingAreaPolygonFeature);
+  const renderableRooms = rooms.filter(
+    (feature) =>
+      !isEscalatorPolygonFeature(feature) &&
+      !isSittingAreaPolygonFeature(feature)
+  );
 
   const topSections = sections.filter(
     (f) => !f.properties?.subSection && f.properties?.type !== "Sub Section"
@@ -1017,6 +1059,13 @@ const createTextTexture = async (text) => {
       center,
       z: getFeatureBaseHeight(p) + 0.02,
       rot: getPolygonRotationRad(feature.geometry),
+      footprint: {
+        lengthM: ESCALATOR_MODEL_LENGTH_M,
+        widthM: ESCALATOR_MODEL_WIDTH_M,
+        heightM: ESCALATOR_MODEL_HEIGHT_M,
+      },
+      rotationOffsetRad: ESCALATOR_MODEL_ROTATION_OFFSET_RAD,
+      uprightRollRad: ESCALATOR_MODEL_UPRIGHT_ROLL_RAD,
     });
     escalatorPlacementsByModel.set(modelUrl, placements);
   }
@@ -1025,6 +1074,45 @@ const createTextTexture = async (text) => {
     ([modelUrl, placements], index) => {
       addTrackedGltfLayer(
         `escalator-model-3d-${floor}-${index}`,
+        modelUrl,
+        placements
+      );
+    }
+  );
+
+  // ── SITTING AREAS (fixed-size GLB aligned to polygon direction) ───────
+  const sittingAreaPlacementsByModel = new Map();
+
+  for (const feature of sittingAreaFeatures) {
+    const p = feature.properties || {};
+    const center =
+      (Array.isArray(p.centroid) ? p.centroid : null) ||
+      getPoleOfInaccessibility(feature.geometry) ||
+      getPolygonCenter(feature.geometry);
+    const modelUrl = getSittingAreaModelUrl(feature);
+
+    if (!center || !modelUrl) continue;
+
+    const placements = sittingAreaPlacementsByModel.get(modelUrl) || [];
+    placements.push({
+      center,
+      z: getFeatureBaseHeight(p) + 0.02,
+      rot: getPolygonRotationRad(feature.geometry),
+      footprint: {
+        lengthM: SITTING_AREA_MODEL_LENGTH_M,
+        widthM: SITTING_AREA_MODEL_WIDTH_M,
+        heightM: SITTING_AREA_MODEL_HEIGHT_M,
+      },
+      rotationOffsetRad: SITTING_AREA_MODEL_ROTATION_OFFSET_RAD,
+      uprightRollRad: SITTING_AREA_MODEL_UPRIGHT_ROLL_RAD,
+    });
+    sittingAreaPlacementsByModel.set(modelUrl, placements);
+  }
+
+  Array.from(sittingAreaPlacementsByModel.entries()).forEach(
+    ([modelUrl, placements], index) => {
+      addTrackedGltfLayer(
+        `sitting-area-model-3d-${floor}-${index}`,
         modelUrl,
         placements
       );
@@ -1494,6 +1582,7 @@ for (const feature of floorFeatures) {
   for (const feature of floorFeatures) {
     const p = feature.properties || {};
     if (isEscalatorFeature(feature)) continue;
+    if (isSittingAreaFeature(feature)) continue;
     if (!p.objectFile) continue;
     if (p.animalRef?.model_3d) continue;
     const modelUrl = getObjectFileUrl(p.objectFile);
