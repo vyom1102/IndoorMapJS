@@ -13,7 +13,7 @@ export const splitFeatures = (features) => {
     if (p.type === "Waypoint") continue;
     if (p.type === "Boundary" || p.polygonType === "Boundary") {
       boundaries.push(f);
-    } else if (p.type === "Section") {
+    } else if (p.type === "Section" || p.type === "Sub Section") {
       sections.push(f); // 🔥 NEW
     } else if (f.geometry?.type === "Point" && p.sponsorRef?.logo_url) {
       sponsorPoints.push(f);

@@ -14,6 +14,8 @@ import { loadVenueData } from "../services/venueApi";
 
 const baseUrl = import.meta.env.VITE_BASE_URL || "";
 const FIXED_GLB_SIZE_PX = 80;
+// Fixed pixel size (in metres equivalent) for boundary logos
+const BOUNDARY_LOGO_SIZE_M = 20;
 
 const getPolygonCenter = (geometry) => {
   const ring =
@@ -142,21 +144,19 @@ const getFeatureTopHeight = (props = {}) => {
   if (type === "wall") return baseHeight + (hasValidHeight ? parsedHeight : 4);
   if (type === "booth") return baseHeight + 2;
   if (type === "green area" || type === "green area | pots") return baseHeight + 0.2;
-  return baseHeight + (hasValidHeight ? parsedHeight : 3);
+  // For all other types: only add height if explicitly set, otherwise 0
+  return baseHeight + (hasValidHeight ? parsedHeight : 0);
 };
-
-
 
 const getFeatureAnchorCoordinates = (feature) => {
   const geometryType = feature?.geometry?.type;
   if (geometryType === "Point") return feature.geometry?.coordinates || null;
   if (geometryType === "Polygon" || geometryType === "MultiPolygon") {
-    // ✅ Use pole of inaccessibility instead of centroid
     return getPoleOfInaccessibility(feature.geometry);
   }
   return null;
 };
-// Add this utility function at the top of your file (after imports)
+
 const getPoleOfInaccessibility = (geometry) => {
   const ring =
     geometry?.type === "Polygon"
@@ -167,7 +167,6 @@ const getPoleOfInaccessibility = (geometry) => {
 
   if (!ring?.length) return null;
 
-  // Get bounding box
   let minLng = Infinity, minLat = Infinity;
   let maxLng = -Infinity, maxLat = -Infinity;
   for (const [lng, lat] of ring) {
@@ -177,10 +176,9 @@ const getPoleOfInaccessibility = (geometry) => {
 
   const width = maxLng - minLng;
   const height = maxLat - minLat;
-  const cellSize = Math.min(width, height) / 16; // precision grid
+  const cellSize = Math.min(width, height) / 16;
   if (cellSize === 0) return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
 
-  // Point-in-polygon check (ray casting)
   const pointInPolygon = (x, y, poly) => {
     let inside = false;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -193,7 +191,6 @@ const getPoleOfInaccessibility = (geometry) => {
     return inside;
   };
 
-  // Distance from point to polygon edge (minimum)
   const pointToSegmentDist = (px, py, ax, ay, bx, by) => {
     const dx = bx - ax, dy = by - ay;
     const lenSq = dx * dx + dy * dy;
@@ -212,7 +209,6 @@ const getPoleOfInaccessibility = (geometry) => {
     return pointInPolygon(x, y, poly) ? minDist : -minDist;
   };
 
-  // Grid search for best cell (highest distance from edges)
   let bestDist = -Infinity;
   let bestPoint = [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
 
@@ -228,13 +224,127 @@ const getPoleOfInaccessibility = (geometry) => {
 
   return bestPoint;
 };
+
 const getObjectFileUrl = (objectFile) => {
   if (!objectFile) return null;
   if (/^https?:\/\//i.test(objectFile)) return objectFile;
-
   const cleanBase = String(baseUrl).replace(/\/+$/, "");
   const cleanPath = String(objectFile).replace(/^\/+/, "");
   return `${cleanBase}/uploads/${cleanPath}`;
+};
+
+const getImageFileUrl = (imageFile) => {
+  if (!imageFile) return null;
+  if (/^https?:\/\//i.test(imageFile)) return imageFile;
+  const cleanBase = String(baseUrl).replace(/\/+$/, "");
+  const cleanPath = String(imageFile).replace(/^\/+/, "");
+  return `${cleanBase}/uploads/${cleanPath}`;
+};
+
+// ─── Shared helper to build + register a custom 3D plane layer ───────────────
+const buildLogoPlaneLayer = (map, layerId, planes) => {
+  map.addLayer({
+    id: layerId,
+    type: "custom",
+    renderingMode: "3d",
+    onAdd: function (_map, gl) {
+      this.camera = new THREE.Camera();
+      this.scene = new THREE.Scene();
+      this.renderer = new THREE.WebGLRenderer({
+        canvas: _map.getCanvas(),
+        context: gl,
+        antialias: true,
+      });
+      this.renderer.autoClear = false;
+      this.mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(1, 1),
+        new THREE.MeshBasicMaterial({
+          side: THREE.DoubleSide,
+          transparent: true,
+          depthTest: false,
+          depthWrite: false,
+        })
+      );
+      this.scene.add(this.mesh);
+
+      this.planes = planes.map(({ center, texture, scaleX, scaleY, z, rot }) => {
+        const mercator = maplibregl.MercatorCoordinate.fromLngLat(
+          { lng: center[0], lat: center[1] },
+          z
+        );
+        const meterScale = mercator.meterInMercatorCoordinateUnits();
+        return {
+          texture,
+          tx: mercator.x,
+          ty: mercator.y,
+          tz: mercator.z,
+          sx: meterScale * scaleX,
+          sy: meterScale * scaleY,
+          rot: rot || 0,
+        };
+      });
+    },
+    render: function (_gl, matrix) {
+      const base = new THREE.Matrix4().fromArray(matrix);
+      this.renderer.state.reset();
+      this.renderer.clearDepth();
+
+      this.planes.forEach((plane) => {
+        this.mesh.material.map = plane.texture;
+        this.mesh.material.needsUpdate = true;
+
+        const rotationX = new THREE.Matrix4().makeRotationAxis(
+          new THREE.Vector3(1, 0, 0),
+          Math.PI
+        );
+        const rotationZ = new THREE.Matrix4().makeRotationAxis(
+          new THREE.Vector3(0, 0, 1),
+          plane.rot || 0
+        );
+        const modelMatrix = new THREE.Matrix4()
+          .makeTranslation(plane.tx, plane.ty, plane.tz)
+          .multiply(rotationZ)
+          .multiply(rotationX)
+          .scale(new THREE.Vector3(plane.sx, plane.sy, 1));
+
+        this.camera.projectionMatrix = base.clone().multiply(modelMatrix);
+        this.renderer.render(this.scene, this.camera);
+      });
+
+      map.triggerRepaint();
+    },
+    onRemove: function () {
+      this.mesh?.geometry?.dispose?.();
+      this.mesh?.material?.dispose?.();
+      this.renderer?.dispose?.();
+    },
+  });
+};
+
+// ─── Shared scale helper (aspect-correct fit inside polygon footprint) ────────
+const computePlaneScale = (widthM, heightM, aspect, coverFraction = 0.65) => {
+  const maxWidth  = Math.max(0.3, widthM  * coverFraction);
+  const maxHeight = Math.max(0.3, heightM * coverFraction);
+  let scaleX, scaleY;
+  if (maxWidth / aspect <= maxHeight) {
+    scaleX = maxWidth;
+    scaleY = maxWidth / aspect;
+  } else {
+    scaleY = maxHeight;
+    scaleX = maxHeight * aspect;
+  }
+  return {
+    scaleX: Math.min(scaleX, maxWidth),
+    scaleY: Math.min(scaleY, maxHeight),
+  };
+};
+
+// ─── Fixed-size plane scale (for boundary logos — constant physical metres) ──
+const computeFixedPlaneScale = (aspect, sizeM = BOUNDARY_LOGO_SIZE_M) => {
+  if (aspect >= 1) {
+    return { scaleX: sizeM, scaleY: sizeM / aspect };
+  }
+  return { scaleX: sizeM * aspect, scaleY: sizeM };
 };
 
 export default function IndoorMap() {
@@ -246,855 +356,763 @@ export default function IndoorMap() {
   const markersRef = useRef([]);
   const sourceRef = useRef(null);
   const destRef = useRef(null);
+  const customLayerIdsRef = useRef([]);
+
   const [sourceQuery, setSourceQuery] = useState("");
   const [destQuery, setDestQuery] = useState("");
+  const [sourceResults, setSourceResults] = useState([]);
+  const [destResults, setDestResults] = useState([]);
 
-const [sourceResults, setSourceResults] = useState([]);
-const [destResults, setDestResults] = useState([]);
-  const venueName = "PIECC"; // "NationalZoologicalPark";
+  const venueName = "DelhiMetro"; // PIECC
   const defaultCenter = venueData
-  ? [venueData.lng, venueData.lat]
-  : [77.2437, 28.6063];
+    ? [venueData.lng, venueData.lat]
+    : [77.2437, 28.6063];
+
   useEffect(() => {
-  if (!venueName) return;
+    if (!venueName) return;
+    const loadVenue = async () => {
+      const data = await loadVenueData(venueName);
+      if (!data) return;
+      setVenueData(data);
+      const map = mapRef.current;
+      if (map) {
+        map.flyTo({ center: [data.lng, data.lat], zoom: 18 });
+      }
+      setFloor(data.floors?.[0] || 0);
+    };
+    loadVenue();
+  }, [venueName]);
 
-  const loadVenue = async () => {
-    const data = await loadVenueData(venueName);
-    if (!data) return;
-
-    setVenueData(data);
-
-    // 🔥 move camera to venue
-    const map = mapRef.current;
-    if (map) {
-      map.flyTo({
-        center: [data.lng, data.lat],
-        zoom: 18,
-      });
-    }
-
-    // 🔥 set floor
-    setFloor(data.floors?.[0] || 0);
-  };
-
-  loadVenue();
-}, [venueName]);
   useEffect(() => {
     getGeojsonData(venueName).then((res) => {
       if (!res?.data) return;
-
       setGeo({
         type: "FeatureCollection",
         features: res.data.data || res.data.features || [],
       });
     });
   }, []);
+
   // 🧱 Rendering Logic
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !geo || !ready) return;
 
     const render = async () => {
-      const floorFeatures = geo.features.filter(
-        (f) => (f.properties?.floor ?? 0) === floor
-      );
+  // ── Remove ALL custom 3D layers across every known floor ──────────────
+  const allFloors = venueData?.floors || [floor];
+  const customLayerPrefixes = [
+    "boundary-logo-3d-",
+    "sponsor-logo-3d-",
+    "exhibitor-logo-3d-",
+    "point-image-3d-",
+  ];
+  allFloors.forEach((f) => {
+    customLayerPrefixes.forEach((prefix) => {
+      const id = `${prefix}${f}`;
+      if (map.getLayer(id)) map.removeLayer(id);
+    });
+  });
+  // Also clear any tracked from previous renders
+  customLayerIdsRef.current.forEach((id) => {
+    if (map.getLayer(id)) map.removeLayer(id);
+  });
+  customLayerIdsRef.current = [];
 
-const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
-  splitFeatures(floorFeatures);
+  // ── Helper to build + track custom 3D layers ──────────────────────────
+  const addTrackedLogoLayer = (layerId, planes) => {
+    buildLogoPlaneLayer(map, layerId, planes);
+    customLayerIdsRef.current.push(layerId);
+  };
 
-      // 🔥 Remove old markers
-      markersRef.current.forEach((m) => m.remove());
-      markersRef.current = [];
+  const floorFeatures = geo.features.filter(
+    (f) => (f.properties?.floor ?? 0) === floor
+  );
 
-      // 🔥 CLEAN layers
-      const layers = map.getStyle()?.layers || [];
-      layers.forEach((l) => {
-        if (
-          l.id.startsWith("floor_") ||
-          l.id.startsWith("animal") ||
-          l.id.startsWith("sponsor") ||
-          l.id.startsWith("exhibitor")
-        ) {
-          if (map.getLayer(l.id)) map.removeLayer(l.id);
-        }
-      });
+  const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
+    splitFeatures(floorFeatures);
 
-      const sources = map.getStyle()?.sources || {};
-      Object.keys(sources).forEach((id) => {
-        if (
-          id.startsWith("floor_") ||
-          id === "animal-source" ||
-          id.startsWith("sponsor") ||
-          id.startsWith("exhibitor")
-        ) {
-          if (map.getSource(id)) map.removeSource(id);
-        }
-      });
+  const topSections = sections.filter(
+    (f) => !f.properties?.subSection && f.properties?.type !== "Sub Section"
+  );
+  const subSections = sections.filter(
+    (f) => f.properties?.subSection || f.properties?.type === "Sub Section"
+  );
 
-      // 🧱 BOUNDARY
-      map.addSource(`floor_${floor}_boundary`, {
-        type: "geojson",
-        data: {
-          type: "FeatureCollection",
-          features: boundaries,
-        },
-      });
+  const imagedPoints = floorFeatures.filter((f) => {
+    const p = f.properties || {};
+    return (
+      f.geometry?.type === "Point" &&
+      p.imageFile &&
+      !p.sponsorRef &&
+      !p.exhibitorRef &&
+      !p.animalRef &&
+      f.properties?.type !== "Section"
+    );
+  });
 
-      map.addLayer({
-        id: `floor_${floor}_boundary`,
-        type: "fill",
-        source: `floor_${floor}_boundary`,
-        paint: {
-          "fill-color": "#D4DBDD",
-          "fill-opacity": 1,
-        },
-      });
+  // 🔥 Remove old markers
+  markersRef.current.forEach((m) => m.remove());
+  markersRef.current = [];
 
-      // 🧩 SECTIONS (low zoom layer)
+  // 🔥 Clean standard layers
+  const layers = map.getStyle()?.layers || [];
+  layers.forEach((l) => {
+    if (
+      l.id.startsWith("floor_") ||
+      l.id.startsWith("animal") ||
+      l.id.startsWith("sponsor") ||
+      l.id.startsWith("exhibitor") ||
+      l.id.startsWith("point-image") ||
+      l.id.startsWith("boundary-") ||
+      l.id.startsWith("section-") ||
+      l.id.startsWith("subsection-")
+    ) {
+      if (map.getLayer(l.id)) map.removeLayer(l.id);
+    }
+  });
 
-      // 🏢 ROOMS (3D)
-      map.addSource(`floor_${floor}_rooms`, {
-        type: "geojson",
-        data: {
-          type: "FeatureCollection",
-          features: rooms,
-        },
-      });
+  const sources = map.getStyle()?.sources || {};
+  Object.keys(sources).forEach((id) => {
+    if (
+      id.startsWith("floor_") ||
+      id === "animal-source" ||
+      id.startsWith("sponsor") ||
+      id.startsWith("exhibitor") ||
+      id.startsWith("boundary-") ||
+      id.startsWith("section-") ||
+      id.startsWith("subsection-")
+    ) {
+      if (map.getSource(id)) map.removeSource(id);
+    }
+  });
 
-      map.addLayer({
-  id: `floor_${floor}_rooms`,
-  type: "fill-extrusion",
-  source: `floor_${floor}_rooms`,
+  // ── 1. BOUNDARY BASE ──────────────────────────────────────────────────
+  map.addSource(`boundary-base-src-${floor}`, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: boundaries },
+  });
+  map.addLayer({
+    id: `boundary-base-${floor}`,
+    type: "fill",
+    source: `boundary-base-src-${floor}`,
+    paint: { "fill-color": "#D4DBDD", "fill-opacity": 1 },
+  });
 
-  paint: {
-    // 🎨 COLOR LOGIC
-    "fill-extrusion-color": [
-      "case",
-
-      // custom color
-      [
-        "all",
-        ["has", "fillColor"],
-        ["!=", ["get", "fillColor"], "undefined"]
+  // ── 2. ROOMS (3D) ─────────────────────────────────────────────────────
+  map.addSource(`floor_${floor}_rooms`, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: rooms },
+  });
+  map.addLayer({
+    id: `floor_${floor}_rooms`,
+    type: "fill-extrusion",
+    source: `floor_${floor}_rooms`,
+    minzoom: 16,
+    paint: {
+      "fill-extrusion-color": [
+        "case",
+        ["all", ["has", "fillColor"], ["!=", ["get", "fillColor"], "undefined"]],
+        ["get", "fillColor"],
+        ["==", ["get", "type"], "Accessible Washroom"], "#8EDB88",
+        ["==", ["get", "type"], "Female Washroom"], "#8EDB88",
+        ["==", ["get", "type"], "Male Washroom"], "#8EDB88",
+        ["==", ["get", "type"], "Unisex Washroom"], "#8EDB88",
+        ["==", ["get", "type"], "Drinking Water"], "#0277BD",
+        ["==", ["get", "type"], "Food Lounge"], "#D84315",
+        ["==", ["get", "type"], "Lift"], "#013975",
+        ["==", ["get", "type"], "Stairs"], "#546E7A",
+        ["==", ["get", "type"], "Steps"], "#B9BBBD",
+        ["in", ["get", "type"], ["literal", ["Lab", "room", "Room", "Rooms"]]], "#FFC35D",
+        ["==", ["get", "type"], "Office"], "#A38F9F",
+        ["==", ["get", "type"], "Reception"], "#1976D2",
+        ["==", ["get", "type"], "Booth"], "#8AE8F9",
+        ["==", ["get", "type"], "Registration Counter"], "#7B1FA2",
+        ["==", ["get", "type"], "Point of Interest"], "#C2185B",
+        ["==", ["get", "type"], "Restricted Area"], "#BC9F7E",
+        ["==", ["get", "type"], "Non Walkable"], "#424242",
+        ["in", ["downcase", ["get", "type"]], ["literal", ["green area", "green area | pots"]]], "#ADFA9E",
+        ["==", ["get", "type"], "Wall"], "#DCDCDC",
+        ["==", ["get", "type"], "Piller"], "#5D4037",
+        ["==", ["get", "type"], "Terrace"], "#00695C",
+        "#B9BBBD",
       ],
-      ["get", "fillColor"],
-
-      ["==", ["get", "type"], "Accessible Washroom"], "#8EDB88",
-      ["==", ["get", "type"], "Female Washroom"], "#8EDB88",
-      ["==", ["get", "type"], "Male Washroom"], "#8EDB88",
-      ["==", ["get", "type"], "Unisex Washroom"], "#8EDB88",
-
-      ["==", ["get", "type"], "Drinking Water"], "#0277BD",
-      ["==", ["get", "type"], "Food Lounge"], "#D84315",
-      ["==", ["get", "type"], "Lift"], "#013975",
-      ["==", ["get", "type"], "Stairs"], "#546E7A",
-      ["==", ["get", "type"], "Steps"], "#B9BBBD",
-
-      ["in", ["get", "type"], ["literal", ["Lab", "room", "Room", "Rooms"]]], "#FFC35D",
-
-      ["==", ["get", "type"], "Office"], "#A38F9F",
-      ["==", ["get", "type"], "Reception"], "#1976D2",
-      ["==", ["get", "type"], "Booth"], "#8AE8F9",
-      ["==", ["get", "type"], "Registration Counter"], "#7B1FA2",
-      ["==", ["get", "type"], "Point of Interest"], "#C2185B",
-      ["==", ["get", "type"], "Restricted Area"], "#BC9F7E",
-      ["==", ["get", "type"], "Non Walkable"], "#424242",
-
-      ["in", ["downcase", ["get", "type"]],
-        ["literal", ["green area", "green area | pots"]]], "#ADFA9E",
-
-      ["==", ["get", "type"], "Wall"], "#DCDCDC",
-      ["==", ["get", "type"], "Piller"], "#5D4037",
-      ["==", ["get", "type"], "Terrace"], "#00695C",
-
-      "#B9BBBD"
-    ],
-
-    // 🏗 HEIGHT LOGIC (IDENTICAL TO FLUTTER)
-    "fill-extrusion-height": [
-      "case",
-
-      // WALL
-      ["==", ["downcase", ["get", "type"]], "wall"],
-      [
-        "+",
+      "fill-extrusion-height": [
+        "case",
+        ["==", ["downcase", ["get", "type"]], "wall"],
+        ["+",
+          ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0],
+          ["case",
+            ["all", ["has", "height"], ["!=", ["get", "height"], "undefined"], [">", ["to-number", ["get", "height"]], 0]],
+            ["to-number", ["get", "height"]],
+            4
+          ]
+        ],
+        ["==", ["get", "type"], "Booth"],
+        ["+", ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0], 2],
+        ["in", ["downcase", ["get", "type"]], ["literal", ["green area", "green area | pots"]]],
+        ["+", ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0], 0.2],
+        ["all", ["has", "height"], ["!=", ["get", "height"], "undefined"], [">", ["to-number", ["get", "height"]], 0]],
+        ["+", ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0], ["to-number", ["get", "height"]]],
         ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0],
-        [
-          "case",
-          [
-            "all",
-            ["has", "height"],
-            ["!=", ["get", "height"], "undefined"],
-            [">", ["to-number", ["get", "height"]], 0]
-          ],
-          ["to-number", ["get", "height"]],
-          4
-        ]
       ],
-
-      // BOOTH
-      ["==", ["get", "type"], "Booth"],
-      [
-        "+",
-        ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0],
-        2
+      "fill-extrusion-base": [
+        "case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0,
       ],
+      "fill-extrusion-opacity": 1,
+    },
+  });
 
-      // GREEN AREA
-      ["in", ["downcase", ["get", "type"]],
-        ["literal", ["green area", "green area | pots"]]],
-      [
-        "+",
-        ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0],
-        0.2
+  // ── 3. SECTIONS (3D) ──────────────────────────────────────────────────
+  map.addSource(`section-src-${floor}`, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: topSections },
+  });
+  map.addLayer({
+    id: `floor_${floor}_sections`,
+    type: "fill-extrusion",
+    source: `section-src-${floor}`,
+    minzoom: 16,
+    maxzoom: 17,
+    paint: {
+      "fill-extrusion-color": ["coalesce", ["get", "fillColor"], "#ccc"],
+      "fill-extrusion-height": [
+        "case",
+        ["all", ["has", "height"], [">", ["to-number", ["get", "height"]], 0]],
+        ["+", ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0], ["to-number", ["get", "height"]]],
+        ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 4],
       ],
-
-      // NORMAL HEIGHT
-      [
-        "all",
-        ["has", "height"],
-        ["!=", ["get", "height"], "undefined"],
-        [">", ["to-number", ["get", "height"]], 0]
+      "fill-extrusion-base": [
+        "case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0,
       ],
-      [
-        "+",
-        ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0],
-        ["to-number", ["get", "height"]]
+      "fill-extrusion-opacity": 1,
+    },
+  });
+
+  // ── 4. SUBSECTIONS (3D) ───────────────────────────────────────────────
+  map.addSource(`subsection-src-${floor}`, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: subSections },
+  });
+  map.addLayer({
+    id: `floor_${floor}_subsections`,
+    type: "fill-extrusion",
+    source: `subsection-src-${floor}`,
+    minzoom: 17,
+    maxzoom: 18,
+    paint: {
+      "fill-extrusion-color": ["coalesce", ["get", "fillColor"], "#aaa"],
+      "fill-extrusion-height": [
+        "case",
+        ["all", ["has", "height"], [">", ["to-number", ["get", "height"]], 0]],
+        ["+", ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0], ["to-number", ["get", "height"]]],
+        ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 4],
       ],
+      "fill-extrusion-base": [
+        "case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0,
+      ],
+      "fill-extrusion-opacity": 1,
+    },
+  });
 
-      // DEFAULT HEIGHT
-      [
-        "+",
-        ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0],
-        3
-      ]
-    ],
+  // 🎨 PATTERNS
+  rooms.forEach((f, i) => {
+    if (!f.properties?.pattern) return;
+    const pat = addPatternImage(map, f.properties);
+    const src = `pattern_${floor}_${i}`;
+    map.addSource(src, { type: "geojson", data: { type: "FeatureCollection", features: [f] } });
+    map.addLayer({ id: src, type: "fill", source: src, paint: { "fill-pattern": pat } });
+  });
 
-    // 🧱 BASE HEIGHT
-    "fill-extrusion-base": [
-      "case",
-      ["has", "baseHeight"],
-      ["to-number", ["get", "baseHeight"]],
-      0
-    ],
+  // ── 5. BOUNDARY LABEL LAYER — zoom 15–16 ─────────────────────────────
+  const boundaryLabelFeatures = boundaries
+    .filter((f) => f.properties?.name)
+    .map((f) => ({
+      type: "Feature",
+      geometry: {
+        type: "Point",
+        coordinates: getPoleOfInaccessibility(f.geometry) || getPolygonCenter(f.geometry),
+      },
+      properties: { name: f.properties.name },
+    }))
+    .filter((f) => f.geometry.coordinates);
 
-    "fill-extrusion-opacity": 1
+  map.addSource(`boundary-label-src-${floor}`, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: boundaryLabelFeatures },
+  });
+  map.addLayer({
+    id: `boundary-label-${floor}`,
+    type: "symbol",
+    source: `boundary-label-src-${floor}`,
+    minzoom: 15,
+    maxzoom: 16,
+    layout: {
+      "text-field": ["get", "name"],
+      "text-size": 14,
+      "text-anchor": "center",
+      "text-offset": [0, 1.5],
+      "text-allow-overlap": false,
+    },
+    paint: {
+      "text-color": "#222",
+      "text-halo-color": "#fff",
+      "text-halo-width": 1.5,
+    },
+  });
+
+  const sectionImageByPolygon = new Map();
+  const subSectionImageByPolygon = new Map();
+  const sectionCentroidByPolygon = new Map();
+  const subSectionCentroidByPolygon = new Map();
+
+  for (const f of floorFeatures) {
+    const p = f.properties || {};
+    if (f.geometry?.type !== "Point") continue;
+    if (!Array.isArray(p.associatedPolygons)) continue;
+
+    const isSection =
+      p.type === "Section" &&
+      !p.subSection &&
+      p.polygonType !== "Sub Section";
+    const isSubSection =
+      p.type === "Sub Section" ||
+      p.subSection === true ||
+      p.polygonType === "Sub Section";
+
+    const centroid =
+      p.centroid ||
+      (f.geometry?.type === "Point" ? f.geometry.coordinates : null);
+
+    for (const polyId of p.associatedPolygons) {
+      const key = String(polyId);
+      if (isSection) {
+        if (p.imageFile) sectionImageByPolygon.set(key, p.imageFile);
+        if (centroid) sectionCentroidByPolygon.set(key, centroid);
+      } else if (isSubSection) {
+        if (p.imageFile) subSectionImageByPolygon.set(key, p.imageFile);
+        if (centroid) subSectionCentroidByPolygon.set(key, centroid);
+      } else {
+        if (p.imageFile && !sectionImageByPolygon.has(key))
+          sectionImageByPolygon.set(key, p.imageFile);
+        if (centroid && !sectionCentroidByPolygon.has(key))
+          sectionCentroidByPolygon.set(key, centroid);
+      }
+    }
   }
-});
 
-      map.addSource(`floor_${floor}_sections`, {
-  type: "geojson",
-  data: {
-    type: "FeatureCollection",
-    features: sections,
-  },
-});
+  const centroidFeaturesByLandmark = new Map();
+  for (const f of floorFeatures) {
+    const p = f.properties || {};
+    if (p.type !== "Centroid") continue;
+    const keys = [p.landmarkId, f.id, f._id, p.id, p._id].filter(Boolean);
+    keys.forEach((k) => centroidFeaturesByLandmark.set(String(k), f));
+  }
 
-      map.addLayer({
-  id: `floor_${floor}_sections`,
-  type: "fill-extrusion", // 🔥 3D now
-  source: `floor_${floor}_sections`,
-  maxzoom: 17,
-  paint: {
-    "fill-extrusion-color": [
-      "coalesce",
-      ["get", "fillColor"],
-      "#ccc",
-    ],
+  // ── 6. SECTION LABEL + LOGO (symbol layer, zoom 16–17) ───────────────
+  const sectionSymbolFeatures = [];
 
-    // 🔥 DEFAULT HEIGHT = 3.1
-    "fill-extrusion-height": [
-      "coalesce",
-      ["to-number", ["get", "height"]],
-      3.1
-    ],
+  for (const section of topSections) {
+    const p = section.properties || {};
+    const sectionId = String(section.id || section._id || p.id || p._id || "");
 
-    "fill-extrusion-opacity": 1,
-  },
-});
-      // 🎨 PATTERNS
-      rooms.forEach((f, i) => {
-        if (!f.properties?.pattern) return;
+    const centroidCoords =
+      sectionCentroidByPolygon.get(sectionId) || p.centroid || null;
 
-        const pat = addPatternImage(map, f.properties);
+    const center =
+      (Array.isArray(centroidCoords) ? centroidCoords : null) ||
+      getPoleOfInaccessibility(section.geometry) ||
+      getPolygonCenter(section.geometry);
 
-        const src = `pattern_${floor}_${i}`;
+    if (!center || !p.name) continue;
 
-        map.addSource(src, {
-          type: "geojson",
-          data: {
-            type: "FeatureCollection",
-            features: [f],
-          },
+    const rawImageFile =
+      p.imageFile || p.logo || p.logoUrl ||
+      sectionImageByPolygon.get(sectionId) || "";
+
+    const logoUrl = getImageFileUrl(rawImageFile);
+    let iconId = null;
+
+    if (logoUrl) {
+      iconId = `section-icon-${logoUrl.split("/").pop().split("?")[0]}`;
+      if (!map.hasImage(iconId)) {
+        await new Promise((resolve) => {
+          map.loadImage(logoUrl, (err, image) => {
+            if (!err && image && !map.hasImage(iconId)) {
+              map.addImage(iconId, image);
+            }
+            resolve();
+          });
         });
-
-        map.addLayer({
-          id: src,
-          type: "fill",
-          source: src,
-          paint: {
-            "fill-pattern": pat,
-          },
-        });
-      });
-
-      // 🐘 ANIMALS
-      const features = [];
-
-      for (const f of animals) {
-        const p = f.properties || {};
-        const coords =
-          p.centroid || f.geometry.coordinates;
-
-        const model = p.animalRef?.model_3d;
-        const iconUrl = p.animalRef?.icon;
-
-        // 👉 3D MODEL
-        if (model) {
-          const el = document.createElement("div");
-
-          el.innerHTML = `
-            <model-viewer
-              src="${model}"
-              autoplay
-              interaction-prompt="none"
-              style="width:${FIXED_GLB_SIZE_PX}px;height:${FIXED_GLB_SIZE_PX}px;pointer-events:none;"
-            ></model-viewer>
-          `;
-
-          const marker = new maplibregl.Marker({
-            element: el,
-            // anchor: "center",
-            // pitchAlignment: "viewport",
-            // rotationAlignment: "viewport",
-          })
-            .setLngLat(coords)
-            .addTo(map);
-
-          markersRef.current.push(marker);
-          continue;
-        }
-
-        // 👉 ICON fallback
-        const iconId = iconUrl
-          ? `animal_${iconUrl.split("/").pop()}`
-          : "default";
-
-        if (iconUrl && !map.hasImage(iconId)) {
-          // const img = await map.loadImage(iconUrl);
-          // map.addImage(iconId, img.data);
-           new Promise((resolve, reject) => {
-  map.loadImage(iconUrl, (err, image) => {
-    if (err) return reject(err);
-
-    if (!map.hasImage(iconId)) {
-      map.addImage(iconId, image);
+      }
     }
 
-    resolve();
+    sectionSymbolFeatures.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: center },
+      properties: { name: p.name, icon: iconId || "" },
+    });
+  }
+
+  map.addSource(`section-label-src-${floor}`, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: sectionSymbolFeatures },
   });
-});
-}
+  map.addLayer({
+    id: `section-label-${floor}`,
+    type: "symbol",
+    source: `section-label-src-${floor}`,
+    minzoom: 16,
+    maxzoom: 17,
+    layout: {
+      "icon-image": ["case", ["!=", ["get", "icon"], ""], ["get", "icon"], ""],
+      "icon-size": 0.15,
+      "icon-anchor": "center",
+      "icon-text-fit": "none",
+      "text-field": ["get", "name"],
+      "text-size": 12,
+      "text-anchor": "left",
+      "text-offset": [1.2, 0],
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
+      "symbol-placement": "point",
+    },
+    paint: {
+      "text-color": "#333",
+      "text-halo-color": "#fff",
+      "text-halo-width": 1.5,
+    },
+  });
 
-        const pillId = createPillImage(
-          map,
-          p.name || "Animal"
+  // 🐘 ANIMALS
+  const features = [];
+  for (const f of animals) {
+    const p = f.properties || {};
+    const coords = p.centroid || f.geometry.coordinates;
+    const model = p.animalRef?.model_3d;
+    const iconUrl = p.animalRef?.icon;
+
+    if (model) {
+      const el = document.createElement("div");
+      el.innerHTML = `
+        <model-viewer
+          src="${model}"
+          autoplay
+          interaction-prompt="none"
+          style="width:${FIXED_GLB_SIZE_PX}px;height:${FIXED_GLB_SIZE_PX}px;pointer-events:none;"
+        ></model-viewer>
+      `;
+      const marker = new maplibregl.Marker({ element: el }).setLngLat(coords).addTo(map);
+      markersRef.current.push(marker);
+      continue;
+    }
+
+    const iconId = iconUrl ? `animal_${iconUrl.split("/").pop()}` : "default";
+    if (iconUrl && !map.hasImage(iconId)) {
+      new Promise((resolve, reject) => {
+        map.loadImage(iconUrl, (err, image) => {
+          if (err) return reject(err);
+          if (!map.hasImage(iconId)) map.addImage(iconId, image);
+          resolve();
+        });
+      });
+    }
+
+    const pillId = createPillImage(map, p.name || "Animal");
+    features.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: coords },
+      properties: { icon: iconId, pill: pillId },
+    });
+  }
+
+  // 🗿 LANDMARK GLB OBJECTS
+  for (const feature of floorFeatures) {
+    const p = feature.properties || {};
+    if (!p.objectFile) continue;
+    if (p.animalRef?.model_3d) continue;
+    const modelUrl = getObjectFileUrl(p.objectFile);
+    const coords = p.centroid || getFeatureAnchorCoordinates(feature);
+    if (!modelUrl || !coords) continue;
+    const el = document.createElement("div");
+    el.innerHTML = `
+      <model-viewer
+        src="${modelUrl}"
+        autoplay
+        interaction-prompt="none"
+        style="width:${FIXED_GLB_SIZE_PX}px;height:${FIXED_GLB_SIZE_PX}px;pointer-events:none;"
+      ></model-viewer>
+    `;
+    const marker = new maplibregl.Marker({
+      element: el,
+      anchor: "center",
+      pitchAlignment: "viewport",
+      rotationAlignment: "viewport",
+    }).setLngLat(coords).addTo(map);
+    markersRef.current.push(marker);
+  }
+
+  // 🔥 Animal source + layers
+  map.addSource("animal-source", {
+    type: "geojson",
+    data: { type: "FeatureCollection", features },
+  });
+  map.addLayer({
+    id: "animal-icon",
+    type: "symbol",
+    source: "animal-source",
+    layout: {
+      "icon-image": ["get", "icon"],
+      "icon-size": ["interpolate", ["linear"], ["zoom"], 13, 0.08, 15, 0.18, 17, 0.32, 19, 0.45, 21, 0.6],
+      "icon-anchor": "bottom",
+    },
+  });
+  map.addLayer({
+    id: "animal-pill",
+    type: "symbol",
+    source: "animal-source",
+    minzoom: 17,
+    layout: {
+      "icon-image": ["get", "pill"],
+      "icon-size": 0.5,
+      "icon-anchor": "top",
+      "icon-offset": [0, 20],
+    },
+  });
+
+  // ─── Shared state for all logo/image plane rendering ──────────────────
+  const textureLoader = new THREE.TextureLoader();
+  textureLoader.setCrossOrigin("anonymous");
+  const textureCache = new Map();
+
+  const polygonLookup = new Map();
+  for (const feature of floorFeatures) {
+    const geometryType = feature.geometry?.type;
+    if (geometryType !== "Polygon" && geometryType !== "MultiPolygon") continue;
+    const keys = [
+      feature.id, feature._id,
+      feature.properties?.id, feature.properties?._id,
+    ].filter(Boolean);
+    keys.forEach((key) => polygonLookup.set(String(key), feature));
+  }
+
+  [...boundaries, ...topSections, ...subSections].forEach((feature) => {
+    const keys = [
+      feature.id, feature._id,
+      feature.properties?.id, feature.properties?._id,
+    ].filter(Boolean);
+    keys.forEach((key) => polygonLookup.set(String(key), feature));
+  });
+
+  const loadTexture = async (url) => {
+    if (textureCache.has(url)) return textureCache.get(url);
+    try {
+      const tex = await textureLoader.loadAsync(url);
+      textureCache.set(url, tex);
+      return tex;
+    } catch {
+      textureCache.set(url, null);
+      return null;
+    }
+  };
+
+  const buildPlanesForPolygons = async (logoUrl, polygonIds, coverFraction = 0.65) => {
+    const planes = [];
+    const texture = await loadTexture(logoUrl);
+    if (!texture) return planes;
+
+    const aspect =
+      texture?.image?.width && texture?.image?.height
+        ? texture.image.width / texture.image.height
+        : 1;
+
+    for (const polyId of polygonIds) {
+      const linkedPolygon = polygonLookup.get(polyId);
+      if (!linkedPolygon) continue;
+
+      const center = getPoleOfInaccessibility(linkedPolygon.geometry);
+      if (!center) continue;
+
+      const { widthM, heightM } = getPolygonDimensionsMeters(linkedPolygon.geometry);
+      const roofZ = getFeatureTopHeight(linkedPolygon.properties) + 0.06;
+      const { scaleX, scaleY } = computePlaneScale(widthM, heightM, aspect, coverFraction);
+
+      planes.push({
+        center,
+        texture,
+        scaleX,
+        scaleY,
+        z: roofZ,
+        rot: getPolygonRotationRad(linkedPolygon.geometry),
+      });
+    }
+    return planes;
+  };
+
+  // ── BOUNDARY LOGOS (THREE.js plane, zoom 15–16) ───────────────────────
+  const boundaryLogoPlanes = [];
+
+  for (const boundary of boundaries) {
+    const p = boundary.properties || {};
+    const logoUrl = getImageFileUrl(p.imageFile || p.logo || p.logoUrl);
+    if (!logoUrl) continue;
+
+    const center = getPoleOfInaccessibility(boundary.geometry) || getPolygonCenter(boundary.geometry);
+    if (!center) continue;
+
+    const texture = await loadTexture(logoUrl);
+    if (!texture) continue;
+
+    const aspect =
+      texture?.image?.width && texture?.image?.height
+        ? texture.image.width / texture.image.height
+        : 1;
+
+    const { scaleX, scaleY } = computeFixedPlaneScale(aspect, BOUNDARY_LOGO_SIZE_M);
+    const roofZ = getFeatureTopHeight(p) + 0.06;
+
+    boundaryLogoPlanes.push({
+      center,
+      texture,
+      scaleX,
+      scaleY,
+      z: roofZ,
+      rot: getPolygonRotationRad(boundary.geometry),
+    });
+  }
+
+  if (boundaryLogoPlanes.length) {
+    const boundaryLogoLayerId = `boundary-logo-3d-${floor}`;
+    addTrackedLogoLayer(boundaryLogoLayerId, boundaryLogoPlanes);
+
+    const updateBoundaryLogoVisibility = () => {
+      const z = map.getZoom();
+      const visible = z >= 15 && z < 16;
+      if (map.getLayer(boundaryLogoLayerId)) {
+        map.setLayoutProperty(
+          boundaryLogoLayerId,
+          "visibility",
+          visible ? "visible" : "none"
         );
+      }
+    };
+    updateBoundaryLogoVisibility();
+    map.on("zoom", updateBoundaryLogoVisibility);
+  }
 
-        features.push({
+  // ── SPONSOR LOGOS ─────────────────────────────────────────────────────
+  const sponsorLogoPlanes = [];
+  const sponsorNameFeatures = [];
+
+  for (const pointFeature of sponsorPoints) {
+    const p = pointFeature.properties || {};
+    const logo = p.sponsorRef?.logo_url;
+    if (!logo) continue;
+
+    const polygonIds = [
+      ...(p.associatedPolygons || []),
+      ...(pointFeature.associatedPolygons || []),
+    ].map(String);
+
+    const sponsorName = p.name || p.sponsorRef?.name || "";
+    let labelPlaced = false;
+
+    const planes = await buildPlanesForPolygons(logo, polygonIds, 0.65);
+    sponsorLogoPlanes.push(...planes);
+
+    if (planes.length && !labelPlaced && sponsorName) {
+      const first = planes[0];
+      sponsorNameFeatures.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [first.center[0], first.center[1], first.z] },
+        properties: { name: sponsorName },
+      });
+      labelPlaced = true;
+    }
+
+    if (!labelPlaced && sponsorName) {
+      const fallbackCoords = p.centroid || pointFeature.geometry?.coordinates;
+      if (fallbackCoords) {
+        sponsorNameFeatures.push({
           type: "Feature",
-          geometry: {
-            type: "Point",
-            coordinates: coords,
-          },
-          properties: {
-            icon: iconId,
-            pill: pillId,
-          },
+          geometry: { type: "Point", coordinates: [fallbackCoords[0], fallbackCoords[1], 3] },
+          properties: { name: sponsorName },
         });
       }
+    }
+  }
 
-      // 🗿 LANDMARK GLB OBJECTS (objectFile -> baseUrl/uploads/objectFile)
-      for (const feature of floorFeatures) {
-        const p = feature.properties || {};
-        if (!p.objectFile) continue;
-        if (p.animalRef?.model_3d) continue;
+  if (sponsorLogoPlanes.length) {
+    addTrackedLogoLayer(`sponsor-logo-3d-${floor}`, sponsorLogoPlanes);
+  }
 
-        const modelUrl = getObjectFileUrl(p.objectFile);
-        const coords = p.centroid || getFeatureAnchorCoordinates(feature);
-        if (!modelUrl || !coords) continue;
+  // ── EXHIBITOR LOGOS ───────────────────────────────────────────────────
+  const exhibitorLogoPlanes = [];
 
-        const el = document.createElement("div");
-        el.innerHTML = `
-          <model-viewer
-            src="${modelUrl}"
-            autoplay
-            interaction-prompt="none"
-            style="width:${FIXED_GLB_SIZE_PX}px;height:${FIXED_GLB_SIZE_PX}px;pointer-events:none;"
-          ></model-viewer>
-        `;
+  for (const pointFeature of exhibitorPoints) {
+    const p = pointFeature.properties || {};
+    const logo = p.exhibitorRef?.brandingDetails?.companyLogo;
+    if (!logo) continue;
 
-        const marker = new maplibregl.Marker({
-          element: el,
-          anchor: "center",
-          pitchAlignment: "viewport",
-          rotationAlignment: "viewport",
-        })
-          .setLngLat(coords)
-          .addTo(map);
-        markersRef.current.push(marker);
-      }
+    const polygonIds = [
+      ...(p.associatedPolygons || []),
+      ...(pointFeature.associatedPolygons || []),
+    ].map(String);
 
-      // 🔥 Animal source
-      map.addSource("animal-source", {
-        type: "geojson",
-        data: {
-          type: "FeatureCollection",
-          features,
-        },
-      });
+    const planes = await buildPlanesForPolygons(logo, polygonIds, 0.65);
+    exhibitorLogoPlanes.push(...planes);
+  }
 
-      // 🐾 Icon layer
-      map.addLayer({
-        id: "animal-icon",
-        type: "symbol",
-        source: "animal-source",
-        layout: {
-          "icon-image": ["get", "icon"],
-          "icon-size": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            13, 0.08,
-            15, 0.18,
-            17, 0.32,
-            19, 0.45,
-            21, 0.6,
-          ],
-          "icon-anchor": "bottom",
-        },
-      });
+  if (exhibitorLogoPlanes.length) {
+    addTrackedLogoLayer(`exhibitor-logo-3d-${floor}`, exhibitorLogoPlanes);
+  }
 
-      // 🏷️ Label layer
-      map.addLayer({
-        id: "animal-pill",
-        type: "symbol",
-        source: "animal-source",
-        minzoom: 17,
-        layout: {
-          "icon-image": ["get", "pill"],
-          "icon-size": 0.5,
-          "icon-anchor": "top",
-          "icon-offset": [0, 20],
-        },
-      });
+  // ── GENERAL POINT IMAGE PLANES ────────────────────────────────────────
+  const pointImagePlanes = [];
 
-      // 💼 SPONSOR LOGOS AS 3D PLANES ON POLYGON TOP (Z=3) + NAMES
-      const sponsorLogoPlanes = [];
-      const sponsorNameFeatures = [];
-      const textureLoader = new THREE.TextureLoader();
-      textureLoader.setCrossOrigin("anonymous");
-      const textureCache = new Map();
+  for (const pointFeature of imagedPoints) {
+    const p = pointFeature.properties || {};
+    const imageUrl = getImageFileUrl(p.imageFile);
+    if (!imageUrl) continue;
 
-      const polygonLookup = new Map();
-      for (const feature of floorFeatures) {
-        const geometryType = feature.geometry?.type;
-        if (geometryType !== "Polygon" && geometryType !== "MultiPolygon") continue;
+    const polygonIds = [
+      ...(p.associatedPolygons || []),
+      ...(pointFeature.associatedPolygons || []),
+    ].map(String);
 
-        const keys = [
-          feature.id,
-          feature._id,
-          feature.properties?.id,
-          feature.properties?._id,
-        ].filter(Boolean);
+    if (polygonIds.length > 0) {
+      const planes = await buildPlanesForPolygons(imageUrl, polygonIds, 0.65);
+      pointImagePlanes.push(...planes);
+      continue;
+    }
 
-        keys.forEach((key) => polygonLookup.set(String(key), feature));
-      }
+    const fallbackCoords = p.centroid || pointFeature.geometry?.coordinates;
+    if (!fallbackCoords) continue;
 
-      for (const pointFeature of sponsorPoints) {
-        const p = pointFeature.properties || {};
-        const logo = p.sponsorRef?.logo_url;
-        if (!logo) continue;
+    const texture = await loadTexture(imageUrl);
+    if (!texture) continue;
 
-        const polygonIds = [
-          ...(p.associatedPolygons || []),
-          ...(pointFeature.associatedPolygons || []),
-        ].map(String);
+    const aspect =
+      texture?.image?.width && texture?.image?.height
+        ? texture.image.width / texture.image.height
+        : 1;
 
-        const sponsorName = p.name || p.sponsorRef?.name || "";
-        let labelPlaced = false;
+    const defaultSize = 1.5;
+    pointImagePlanes.push({
+      center: fallbackCoords,
+      texture,
+      scaleX: defaultSize * aspect,
+      scaleY: defaultSize,
+      z: 3.06,
+      rot: 0,
+    });
+  }
 
-        for (const polyId of polygonIds) {
-          const linkedPolygon = polygonLookup.get(polyId);
-          if (!linkedPolygon) continue;
-
-          const center = getPoleOfInaccessibility(linkedPolygon.geometry);
-          if (!center) continue;
-
-          const minDimMeters = getPolygonMinDimensionMeters(linkedPolygon.geometry);
-          const { widthM, heightM } = getPolygonDimensionsMeters(linkedPolygon.geometry);
-          const roofZ = getFeatureTopHeight(linkedPolygon.properties) + 0.06;
-
-          if (!textureCache.has(logo)) {
-            try {
-              const texture = await textureLoader.loadAsync(logo);
-              textureCache.set(logo, texture);
-            } catch (e) {
-              textureCache.set(logo, null);
-            }
-          }
-
-          const texture = textureCache.get(logo);
-          if (texture) {
-            const aspect =
-              texture?.image?.width && texture?.image?.height
-                ? texture.image.width / texture.image.height
-                : 0.8;
-
-            // const maxWidth = Math.max(0.8, widthM * 0.75 || minDimMeters * 0.75 || 0.8);
-            // const maxHeight = Math.max(0.8, heightM * 0.75 || minDimMeters * 0.75 || 0.8);
-            // let scaleX = maxWidth;
-            // let scaleY = maxHeight;
-
-            // if (aspect >= 1) {
-            //   scaleY = Math.min(maxHeight, maxWidth / aspect);
-            // } else {
-            //   scaleX = Math.min(maxWidth, maxHeight * aspect);
-            // }
-            const maxWidth = Math.max(0.3, widthM * 0.65);
-            const maxHeight = Math.max(0.3, heightM * 0.65);
-
-            let scaleX, scaleY;
-            if (maxWidth / aspect <= maxHeight) {
-              scaleX = maxWidth;
-              scaleY = maxWidth / aspect;
-            } else {
-              scaleY = maxHeight;
-              scaleX = maxHeight * aspect;
-            }
-            // Hard clamp — logo never escapes polygon footprint
-            scaleX = Math.min(scaleX, maxWidth);
-            scaleY = Math.min(scaleY, maxHeight);
-            sponsorLogoPlanes.push({
-              center,
-              texture,
-              scaleX,
-              scaleY,
-              z: roofZ,
-              rot: getPolygonRotationRad(linkedPolygon.geometry),
-            });
-          }
-
-          if (!labelPlaced && sponsorName) {
-            sponsorNameFeatures.push({
-              type: "Feature",
-              geometry: { type: "Point", coordinates: [center[0], center[1], roofZ] },
-              properties: { name: sponsorName },
-            });
-            labelPlaced = true;
-          }
-        }
-
-        if (!labelPlaced && sponsorName) {
-          const fallbackCoords = p.centroid || pointFeature.geometry?.coordinates;
-          if (fallbackCoords) {
-            sponsorNameFeatures.push({
-              type: "Feature",
-              geometry: { type: "Point", coordinates: [fallbackCoords[0], fallbackCoords[1], 3] },
-              properties: { name: sponsorName },
-            });
-          }
-        }
-      }
-
-      const sponsorLogoLayerId = `sponsor-logo-3d-${floor}`;
-      if (sponsorLogoPlanes.length) {
-        map.addLayer({
-          id: sponsorLogoLayerId,
-          type: "custom",
-          renderingMode: "3d",
-          onAdd: function onAddCustom(_map, gl) {
-            this.camera = new THREE.Camera();
-            this.scene = new THREE.Scene();
-            this.renderer = new THREE.WebGLRenderer({
-              canvas: _map.getCanvas(),
-              context: gl,
-              antialias: true,
-            });
-            this.renderer.autoClear = false;
-            this.mesh = new THREE.Mesh(
-              new THREE.PlaneGeometry(1, 1),
-              new THREE.MeshBasicMaterial({
-                side: THREE.DoubleSide,
-                transparent: true,
-                depthTest: false,
-                depthWrite: false,
-              })
-            );
-            this.scene.add(this.mesh);
-
-            this.planes = sponsorLogoPlanes.map(({ center, texture, scaleX, scaleY, z, rot }) => {
-              const mercator = maplibregl.MercatorCoordinate.fromLngLat(
-                { lng: center[0], lat: center[1] },
-                z
-              );
-              const meterScale = mercator.meterInMercatorCoordinateUnits();
-              return {
-                texture,
-                tx: mercator.x,
-                ty: mercator.y,
-                tz: mercator.z,
-                sx: meterScale * scaleX,
-                sy: meterScale * scaleY,
-                rot: rot || 0,
-              };
-            });
-          },
-          render: function renderCustom(gl, matrix) {
-            const base = new THREE.Matrix4().fromArray(matrix);
-
-            this.renderer.state.reset();
-            this.renderer.clearDepth();
-
-            this.planes.forEach((plane) => {
-              this.mesh.material.map = plane.texture;
-              this.mesh.material.needsUpdate = true;
-              const rotationX = new THREE.Matrix4().makeRotationAxis(
-              new THREE.Vector3(1, 0, 0),
-              Math.PI  // flip to face upward (plane faces +Z)
-            );
-
-            const rotationZ = new THREE.Matrix4().makeRotationAxis(
-              new THREE.Vector3(0, 0, 1),
-              plane.rot || 0  // align to polygon's longest edge, no extra offset
-            );
-
-            const modelMatrix = new THREE.Matrix4()
-              .makeTranslation(plane.tx, plane.ty, plane.tz)
-              .multiply(rotationZ)
-              .multiply(rotationX)
-              .scale(new THREE.Vector3(plane.sx, plane.sy, 1));
-              // const rotationZ = new THREE.Matrix4().makeRotationAxis(
-              //   new THREE.Vector3(0, 0, 1),
-              //   Math.PI / 2 + (plane.rot || 0)
-              // );
-
-              // const modelMatrix = new THREE.Matrix4()
-              //   .makeTranslation(plane.tx, plane.ty, plane.tz)
-              //   .multiply(rotationZ)
-              //   .scale(
-              //     new THREE.Vector3(
-              //       plane.sx,
-              //       -plane.sy,
-              //       plane.sx
-              //     )
-              //   );
-              this.camera.projectionMatrix = base.clone().multiply(modelMatrix);
-              this.renderer.render(this.scene, this.camera);
-            });
-
-            map.triggerRepaint();
-          },
-          onRemove: function onRemoveCustom() {
-            this.mesh?.geometry?.dispose?.();
-            this.mesh?.material?.dispose?.();
-            this.renderer?.dispose?.();
-          },
-        });
-      }
-
-      // 🏢 EXHIBITOR LOGOS AS 3D PLANES ON POLYGON TOP (same as sponsor)
-      const exhibitorLogoPlanes = [];
-      for (const pointFeature of exhibitorPoints) {
-        const p = pointFeature.properties || {};
-        const logo = p.exhibitorRef?.brandingDetails?.companyLogo;
-        if (!logo) continue;
-
-        const polygonIds = [
-          ...(p.associatedPolygons || []),
-          ...(pointFeature.associatedPolygons || []),
-        ].map(String);
-
-        for (const polyId of polygonIds) {
-          const linkedPolygon = polygonLookup.get(polyId);
-          if (!linkedPolygon) continue;
-
-          const center = getPoleOfInaccessibility(linkedPolygon.geometry);
-          if (!center) continue;
-
-          const minDimMeters = getPolygonMinDimensionMeters(linkedPolygon.geometry);
-          const { widthM, heightM } = getPolygonDimensionsMeters(linkedPolygon.geometry);
-          const roofZ = getFeatureTopHeight(linkedPolygon.properties) + 0.06;
-
-          if (!textureCache.has(logo)) {
-            try {
-              const texture = await textureLoader.loadAsync(logo);
-              textureCache.set(logo, texture);
-            } catch (e) {
-              textureCache.set(logo, null);
-            }
-          }
-
-          const texture = textureCache.get(logo);
-          if (!texture) continue;
-
-          const aspect =
-            texture?.image?.width && texture?.image?.height
-              ? texture.image.width / texture.image.height
-              : 0.8;
-
-          // const maxWidth = Math.max(0.8, widthM * 0.9 || minDimMeters * 0.9 || 0.8);
-          // const maxHeight = Math.max(0.8, heightM * 0.9 || minDimMeters * 0.9 || 0.8);
-          // let scaleX = maxWidth;
-          // let scaleY = maxHeight;
-
-          // if (aspect >= 1) {
-          //   scaleY = Math.min(maxHeight, maxWidth / aspect);
-          // } else {
-          //   scaleX = Math.min(maxWidth, maxHeight * aspect);
-          // }
-
-          // AFTER (exhibitor)
-        const maxWidth = Math.max(0.3, widthM * 0.65);
-        const maxHeight = Math.max(0.3, heightM * 0.65);
-
-        let scaleX, scaleY;
-        if (maxWidth / aspect <= maxHeight) {
-          scaleX = maxWidth;
-          scaleY = maxWidth / aspect;
-        } else {
-          scaleY = maxHeight;
-          scaleX = maxHeight * aspect;
-        }
-        scaleX = Math.min(scaleX, maxWidth);
-        scaleY = Math.min(scaleY, maxHeight);
-          exhibitorLogoPlanes.push({
-            center,
-            texture,
-            scaleX,
-            scaleY,
-            z: roofZ,
-            rot: getPolygonRotationRad(linkedPolygon.geometry),
-          });
-        }
-      }
-
-      const exhibitorLogoLayerId = `exhibitor-logo-3d-${floor}`;
-      if (exhibitorLogoPlanes.length) {
-        map.addLayer({
-          id: exhibitorLogoLayerId,
-          type: "custom",
-          renderingMode: "3d",
-          onAdd: function onAddCustom(_map, gl) {
-            this.camera = new THREE.Camera();
-            this.scene = new THREE.Scene();
-            this.renderer = new THREE.WebGLRenderer({
-              canvas: _map.getCanvas(),
-              context: gl,
-              antialias: true,
-            });
-            this.renderer.autoClear = false;
-            this.mesh = new THREE.Mesh(
-              new THREE.PlaneGeometry(1, 1),
-              new THREE.MeshBasicMaterial({
-                side: THREE.DoubleSide,
-                transparent: true,
-                depthTest: false,
-                depthWrite: false,
-              })
-            );
-            this.scene.add(this.mesh);
-
-            this.planes = exhibitorLogoPlanes.map(({ center, texture, scaleX, scaleY, z, rot }) => {
-              const mercator = maplibregl.MercatorCoordinate.fromLngLat(
-                { lng: center[0], lat: center[1] },
-                z
-              );
-              const meterScale = mercator.meterInMercatorCoordinateUnits();
-              return {
-                texture,
-                tx: mercator.x,
-                ty: mercator.y,
-                tz: mercator.z,
-                sx: meterScale * scaleX,
-                sy: meterScale * scaleY,
-                rot: rot || 0,
-              };
-            });
-          },
-          render: function renderCustom(gl, matrix) {
-            const base = new THREE.Matrix4().fromArray(matrix);
-
-            this.renderer.state.reset();
-            this.renderer.clearDepth();
-
-            this.planes.forEach((plane) => {
-              this.mesh.material.map = plane.texture;
-              this.mesh.material.needsUpdate = true;
-              const rotationX = new THREE.Matrix4().makeRotationAxis(
-              new THREE.Vector3(1, 0, 0),
-              Math.PI  // flip to face upward (plane faces +Z)
-            );
-
-            const rotationZ = new THREE.Matrix4().makeRotationAxis(
-              new THREE.Vector3(0, 0, 1),
-              plane.rot || 0  // align to polygon's longest edge, no extra offset
-            );
-
-            const modelMatrix = new THREE.Matrix4()
-              .makeTranslation(plane.tx, plane.ty, plane.tz)
-              .multiply(rotationZ)
-              .multiply(rotationX)
-              .scale(new THREE.Vector3(plane.sx, plane.sy, 1));
-              // const rotationZ = new THREE.Matrix4().makeRotationAxis(
-              //   new THREE.Vector3(0, 0, 1),
-              //   Math.PI / 2 + (plane.rot || 0)
-              // );
-
-              // const modelMatrix = new THREE.Matrix4()
-              //   .makeTranslation(plane.tx, plane.ty, plane.tz)
-              //   .multiply(rotationZ)
-              //   .scale(new THREE.Vector3(plane.sx, -plane.sy, plane.sx));
-              this.camera.projectionMatrix = base.clone().multiply(modelMatrix);
-              this.renderer.render(this.scene, this.camera);
-            });
-
-            map.triggerRepaint();
-          },
-          onRemove: function onRemoveCustom() {
-            this.mesh?.geometry?.dispose?.();
-            this.mesh?.material?.dispose?.();
-            this.renderer?.dispose?.();
-          },
-        });
-      }
-
-      // map.addSource("sponsor-name-source", {
-      //   type: "geojson",
-      //   data: {
-      //     type: "FeatureCollection",
-      //     features: sponsorNameFeatures,
-      //   },
-      // });
-
-      // map.addLayer({
-      //   id: "sponsor-name",
-      //   type: "symbol",
-      //   source: "sponsor-name-source",
-      //   minzoom: 17,
-      //   layout: {
-      //     "text-field": ["get", "name"],
-      //     "text-size": 11,
-      //     "text-anchor": "top",
-      //     "text-offset": [0, 1.1],
-      //     "text-allow-overlap": false,
-      //   },
-      //   paint: {
-      //     "text-color": "#111",
-      //     "text-halo-color": "#fff",
-      //     "text-halo-width": 1,
-      //   },
-      // });
+  if (pointImagePlanes.length) {
+    addTrackedLogoLayer(`point-image-3d-${floor}`, pointImagePlanes);
+  }
     };
 
     if (!map.isStyleLoaded()) {
@@ -1104,7 +1122,6 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
     }
   }, [geo, floor, ready]);
 
-
   // 🖱️ Click handler
   useEffect(() => {
     const map = mapRef.current;
@@ -1112,330 +1129,219 @@ const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
 
     const onClick = (e) => {
       const features = map.queryRenderedFeatures(e.point);
-
       if (!features.length) return;
-
       const props = features[0].properties || {};
-
       if (
         props.type === "Boundary" ||
         props.type === "centroid" ||
         props.type === "Waypoint"
       ) return;
-
       const coords =
         features[0].geometry?.coordinates?.[0]?.[0] ||
         features[0].geometry?.coordinates;
-
       if (!coords) return;
-
-      map.flyTo({
-        center: coords,
-        zoom: 20,
-      });
+      map.flyTo({ center: coords, zoom: 20 });
     };
 
     map.on("click", onClick);
     return () => map.off("click", onClick);
   }, [ready]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready || !venueData) return;
+    if (sourceRef.current || destRef.current) return;
 
-useEffect(() => {
-  const map = mapRef.current;
-  if (!map || !ready || !venueData) return;
+    const center = [venueData.lng, venueData.lat];
+    const src = new maplibregl.Marker({ draggable: true, color: "green" })
+      .setLngLat(center)
+      .addTo(map);
+    const dest = new maplibregl.Marker({ draggable: true, color: "red" })
+      .setLngLat([center[0] + 0.0003, center[1] + 0.0003])
+      .addTo(map);
 
-  if (sourceRef.current || destRef.current) return;
+    sourceRef.current = src;
+    destRef.current = dest;
 
-  const center = [venueData.lng, venueData.lat];
+    const run = () => handleRouting();
+    src.on("dragend", run);
+    dest.on("dragend", run);
+  }, [ready, venueData]);
 
-  const src = new maplibregl.Marker({
-    draggable: true,
-    color: "green",
-  })
-    .setLngLat(center)
-    .addTo(map);
+  const handleRouting = async () => {
+    const map = mapRef.current;
+    const src = sourceRef.current.getLngLat();
+    const dest = destRef.current.getLngLat();
+    console.log("SRC:", src);
+    console.log("DEST:", dest);
 
-  const dest = new maplibregl.Marker({
-    draggable: true,
-    color: "red",
-  })
-    .setLngLat([
-      center[0] + 0.0003,
-      center[1] + 0.0003,
-    ])
-    .addTo(map);
+    const graph = await fetchNearbyNodes(src.lat, src.lng);
+    console.log("GRAPH:", graph);
+    if (!graph) return;
 
-  sourceRef.current = src;
-  destRef.current = dest;
+    const start = findClosestNode(graph, src);
+    const end = findClosestNode(graph, dest);
+    console.log("START:", start);
+    console.log("END:", end);
 
-  // 🔥 ATTACH ROUTING HERE (IMPORTANT)
-  const run = () => handleRouting();
+    const path = dijkstra(graph, start.key, end.key);
+    console.log("PATH:", path);
 
-  src.on("dragend", run);
-  dest.on("dragend", run);
+    const coords = path.map((k) => {
+      const [lng, lat] = k.split(",");
+      return [parseFloat(lng), parseFloat(lat)];
+    });
 
-}, [ready, venueData]);
+    const routeGeo = {
+      type: "Feature",
+      geometry: { type: "LineString", coordinates: coords },
+    };
 
-const handleRouting = async () => {
-  const map = mapRef.current;
-
-
-
-  // if (!map || !sourceRef.current || !destRef.current) return;
-
-  const src = sourceRef.current.getLngLat();
-  const dest = destRef.current.getLngLat();
-  console.log("SRC:", src);
-  console.log("DEST:", dest);
-  // 🔥 call your API
-  const graph = await fetchNearbyNodes(src.lat, src.lng);
-
-  console.log("GRAPH:", graph);
-  if (!graph) return;
-
-  const start = findClosestNode(graph, src);
-  const end = findClosestNode(graph, dest);
-
-  console.log("START:", start);
-  console.log("END:", end);
-  const path = dijkstra(graph, start.key, end.key);
-
-   console.log("PATH:", path);
-  const coords = path.map((k) => {
-    const [lng, lat] = k.split(",");
-    return [parseFloat(lng), parseFloat(lat)];
-  });
-
-  const routeGeo = {
-    type: "Feature",
-    geometry: {
-      type: "LineString",
-      coordinates: coords,
-    },
+    if (map.getSource("route")) {
+      map.getSource("route").setData(routeGeo);
+    } else {
+      map.addSource("route", { type: "geojson", data: routeGeo });
+      map.addLayer({
+        id: "route-line",
+        type: "line",
+        source: "route",
+        paint: { "line-color": "#007AFF", "line-width": 5 },
+      });
+    }
   };
 
-  // 🔥 draw/update route
-  if (map.getSource("route")) {
-    map.getSource("route").setData(routeGeo);
-  } else {
-    map.addSource("route", {
-      type: "geojson",
-      data: routeGeo,
-    });
+  const searchPlaces = (query) => {
+    if (!geo || !query) return [];
+    const q = query.toLowerCase();
+    const seen = new Set();
+    const results = [];
+    for (const f of geo.features) {
+      const name = f.properties?.name;
+      if (!name) continue;
+      const lower = name.toLowerCase();
+      if (!lower.includes(q)) continue;
+      if (seen.has(lower)) continue;
+      seen.add(lower);
+      results.push(f);
+      if (results.length >= 5) break;
+    }
+    return results;
+  };
 
-    map.addLayer({
-      id: "route-line",
-      type: "line",
-      source: "route",
-      paint: {
-        "line-color": "#007AFF",
-        "line-width": 5,
-      },
-    });
-  }
-};
+  const handleSourceSearch = (val) => {
+    setSourceQuery(val);
+    setSourceResults(searchPlaces(val));
+  };
 
-// const searchPlaces = (query) => {
-//   if (!geo || !query) return [];
+  const handleDestSearch = (val) => {
+    setDestQuery(val);
+    setDestResults(searchPlaces(val));
+  };
 
-//   const q = query.toLowerCase();
+  const selectSource = (feature) => {
+    const coords = feature.properties?.centroid || feature.geometry.coordinates;
+    if (sourceRef.current) sourceRef.current.setLngLat(coords);
+    setSourceQuery(feature.properties?.name || "");
+    setSourceResults([]);
+    handleRouting();
+  };
 
-//   return geo.features
-//     .filter((f) => {
-//       const name = f.properties?.name || "";
-//       return name.toLowerCase().includes(q);
-//     })
-//     .slice(0, 5);
-// };
-const searchPlaces = (query) => {
-  if (!geo || !query) return [];
+  const selectDest = (feature) => {
+    const coords = feature.properties?.centroid || feature.geometry.coordinates;
+    if (destRef.current) destRef.current.setLngLat(coords);
+    setDestQuery(feature.properties?.name || "");
+    setDestResults([]);
+    handleRouting();
+  };
 
-  const q = query.toLowerCase();
+  const dropdownStyle = {
+    background: "#fff",
+    border: "1px solid #ddd",
+    borderRadius: 6,
+    maxHeight: 150,
+    overflowY: "auto",
+  };
+  const itemStyle = {
+    padding: 8,
+    cursor: "pointer",
+    borderBottom: "1px solid #eee",
+  };
 
-  const seen = new Set();
-  const results = [];
+  return (
+    <div style={{ height: "100vh", width: "100%", position: "relative" }}>
+      {/* 🔍 SEARCH PANEL */}
+      <div style={{ position: "absolute", top: 20, left: 20, zIndex: 20, width: 260 }}>
+        <input
+          placeholder="Search Source"
+          value={sourceQuery}
+          onChange={(e) => handleSourceSearch(e.target.value)}
+          style={{ width: "100%", padding: 8, marginBottom: 6, borderRadius: 6, border: "1px solid #ccc" }}
+        />
+        {sourceResults.length > 0 && (
+          <div style={dropdownStyle}>
+            {sourceResults.map((f, i) => (
+              <div key={i} style={itemStyle} onClick={() => selectSource(f)}>
+                {f.properties?.name || "Unnamed"}
+              </div>
+            ))}
+          </div>
+        )}
 
-  for (const f of geo.features) {
-    const name = f.properties?.name;
-    if (!name) continue;
-
-    const lower = name.toLowerCase();
-
-    if (!lower.includes(q)) continue;
-
-    // 🔥 skip duplicates
-    if (seen.has(lower)) continue;
-
-    seen.add(lower);
-    results.push(f);
-
-    if (results.length >= 5) break;
-  }
-
-  return results;
-};
-const handleSourceSearch = (val) => {
-  setSourceQuery(val);
-  setSourceResults(searchPlaces(val));
-};
-
-const handleDestSearch = (val) => {
-  setDestQuery(val);
-  setDestResults(searchPlaces(val));
-};
-const selectSource = (feature) => {
-  const coords =
-    feature.properties?.centroid ||
-    feature.geometry.coordinates;
-
-  if (sourceRef.current) {
-    sourceRef.current.setLngLat(coords);
-  }
-
-  setSourceQuery(feature.properties?.name || "");
-  setSourceResults([]);
-
-  handleRouting();
-};
-const dropdownStyle = {
-  background: "#fff",
-  border: "1px solid #ddd",
-  borderRadius: 6,
-  maxHeight: 150,
-  overflowY: "auto",
-};
-
-const itemStyle = {
-  padding: 8,
-  cursor: "pointer",
-  borderBottom: "1px solid #eee",
-};
-const selectDest = (feature) => {
-  const coords =
-    feature.properties?.centroid ||
-    feature.geometry.coordinates;
-
-  if (destRef.current) {
-    destRef.current.setLngLat(coords);
-  }
-
-  setDestQuery(feature.properties?.name || "");
-  setDestResults([]);
-
-  handleRouting();
-};
-return (
-  <div style={{ height: "100vh", width: "100%", position: "relative" }}>
-    {/* 🔍 SEARCH PANEL */}
-<div
-  style={{
-    position: "absolute",
-    top: 20,
-    left: 20,
-    zIndex: 20,
-    width: 260,
-  }}
->
-  {/* SOURCE */}
-  <input
-    placeholder="Search Source"
-    value={sourceQuery}
-    onChange={(e) => handleSourceSearch(e.target.value)}
-    style={{
-      width: "100%",
-      padding: 8,
-      marginBottom: 6,
-      borderRadius: 6,
-      border: "1px solid #ccc",
-    }}
-  />
-
-  {sourceResults.length > 0 && (
-    <div style={dropdownStyle}>
-      {sourceResults.map((f, i) => (
-        <div
-          key={i}
-          style={itemStyle}
-          onClick={() => selectSource(f)}
-        >
-          {f.properties?.name || "Unnamed"}
-        </div>
-        
-      ))}
-    </div>
-  )}
-
-  {/* DESTINATION */}
-  <input
-    placeholder="Search Destination"
-    value={destQuery}
-    onChange={(e) => handleDestSearch(e.target.value)}
-    style={{
-      width: "100%",
-      padding: 8,
-      marginTop: 10,
-      borderRadius: 6,
-      border: "1px solid #ccc",
-    }}
-  />
-
-  {destResults.length > 0 && (
-    <div style={dropdownStyle}>
-      {destResults.map((f, i) => (
-        <div
-          key={i}
-          style={itemStyle}
-          onClick={() => selectDest(f)}
-        >
-          {f.properties?.name || "Unnamed"}
-        </div>
-      ))}
-    </div>
-  )}
-</div>
-    {/* 🏢 FLOOR SWITCHER */}
-    {venueData?.floors?.length > 1 && (
-      <div
-        style={{
-          position: "absolute",
-          top: 20,
-          right: 20,
-          zIndex: 10,
-          background: "#fff",
-          borderRadius: 8,
-          padding: 8,
-          boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
-        }}
-      >
-        {venueData.floors.map((f) => (
-          <button
-            key={f}
-            onClick={() => setFloor(f)}
-            style={{
-              display: "block",
-              margin: "4px 0",
-              padding: "6px 10px",
-              width: "100%",
-              cursor: "pointer",
-              borderRadius: 6,
-              border: "none",
-              background: f === floor ? "#007AFF" : "#eee",
-              color: f === floor ? "#fff" : "#000",
-              fontWeight: f === floor ? "bold" : "normal",
-            }}
-          >
-            Floor {f}
-          </button>
-        ))}
+        <input
+          placeholder="Search Destination"
+          value={destQuery}
+          onChange={(e) => handleDestSearch(e.target.value)}
+          style={{ width: "100%", padding: 8, marginTop: 10, borderRadius: 6, border: "1px solid #ccc" }}
+        />
+        {destResults.length > 0 && (
+          <div style={dropdownStyle}>
+            {destResults.map((f, i) => (
+              <div key={i} style={itemStyle} onClick={() => selectDest(f)}>
+                {f.properties?.name || "Unnamed"}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-    )}
 
-    <div ref={containerRef} style={{ height: "100%" }} />
-  </div>
-);
-  // return (
-  //   <div style={{ height: "100vh", width: "100%" }}>
-  //     <div ref={containerRef} style={{ height: "100%" }} />
-  //   </div>
-  // );
+      {/* 🏢 FLOOR SWITCHER */}
+      {venueData?.floors?.length > 1 && (
+        <div
+          style={{
+            position: "absolute",
+            top: 20,
+            right: 20,
+            zIndex: 10,
+            background: "#fff",
+            borderRadius: 8,
+            padding: 8,
+            boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
+          }}
+        >
+          {venueData.floors.map((f) => (
+            <button
+              key={f}
+              onClick={() => setFloor(f)}
+              style={{
+                display: "block",
+                margin: "4px 0",
+                padding: "6px 10px",
+                width: "100%",
+                cursor: "pointer",
+                borderRadius: 6,
+                border: "none",
+                background: f === floor ? "#007AFF" : "#eee",
+                color: f === floor ? "#fff" : "#000",
+                fontWeight: f === floor ? "bold" : "normal",
+              }}
+            >
+              Floor {f}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div ref={containerRef} style={{ height: "100%" }} />
+    </div>
+  );
 }

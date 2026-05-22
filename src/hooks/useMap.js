@@ -11,7 +11,7 @@ export const useMap = () => {
     if(mapRef.current) return;
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: "https://demotiles.maplibre.org/style.json",
+      style: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
       center: [77.2437,28.6063],
       zoom:18,
       pitch:45
