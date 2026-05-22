@@ -616,17 +616,106 @@ const switchFloor = async (newFloor) => {
     (f) => f.properties?.subSection || f.properties?.type === "Sub Section"
   );
 
-  const imagedPoints = floorFeatures.filter((f) => {
-    const p = f.properties || {};
-    return (
-      f.geometry?.type === "Point" &&
-      p.imageFile &&
-      !p.sponsorRef &&
-      !p.exhibitorRef &&
-      !p.animalRef &&
-      f.properties?.type !== "Section"
-    );
+
+// ── GENERAL LANDMARK IMAGE/TEXT PLANES ────────────────────────────────
+
+// include ALL point landmarks
+const imagedPoints = floorFeatures.filter((f) => {
+  const p = f.properties || {};
+
+  return (
+    f.geometry?.type === "Point" &&
+    !p.sponsorRef &&
+    !p.exhibitorRef &&
+    !p.animalRef &&
+    f.properties?.type !== "Section"
+  );
+});
+
+const createTextTexture = async (text) => {
+  return await new Promise((resolve) => {
+    const canvas = document.createElement("canvas");
+
+    canvas.width = 1024;
+    canvas.height = 512;
+
+    const ctx = canvas.getContext("2d");
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const safeText = String(text || "").trim();
+
+    // ── MULTILINE SPLIT ───────────────────────────────
+    const words = safeText.split(" ");
+
+    let lines = [];
+
+    if (words.length <= 1) {
+      lines = [safeText];
+    } else {
+      const mid = Math.ceil(words.length / 2);
+
+      lines = [
+        words.slice(0, mid).join(" "),
+        words.slice(mid).join(" "),
+      ];
+    }
+
+    // ── FIND BEST FONT SIZE ──────────────────────────
+    let fontSize = 170;
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    while (fontSize > 40) {
+      ctx.font = `700 ${fontSize}px sans-serif`;
+
+      const widest = Math.max(
+        ...lines.map((l) =>
+          ctx.measureText(l).width
+        )
+      );
+
+      if (widest < canvas.width * 0.82) {
+        break;
+      }
+
+      fontSize -= 8;
+    }
+
+    // ── TEXT STYLE ────────────────────────────────────
+    ctx.font = `700 ${fontSize}px sans-serif`;
+
+    ctx.fillStyle = "#000000";
+
+    ctx.shadowColor = "rgba(255,255,255,0.8)";
+    ctx.shadowBlur = 10;
+
+    const lineHeight = fontSize * 1.05;
+
+    // PERFECT CENTERING
+    const totalHeight =
+      (lines.length - 1) * lineHeight;
+
+    const startY =
+      canvas.height / 2 - totalHeight / 2;
+
+    lines.forEach((line, index) => {
+      ctx.fillText(
+        line,
+        canvas.width / 2,
+        startY + index * lineHeight
+      );
+    });
+
+    const texture =
+      new THREE.CanvasTexture(canvas);
+
+    texture.needsUpdate = true;
+
+    resolve(texture);
   });
+};
 
   // 🔥 Remove old markers
   markersRef.current.forEach((m) => m.remove());
@@ -728,18 +817,18 @@ const switchFloor = async (newFloor) => {
         ["==", ["get", "type"], "Booth"],
         ["+", ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0], 2],
         [
-    "any",
-    ["==", ["downcase", ["get", "type"]], "lift"],
-    ["in", ["downcase", ["get", "type"]], ["literal", ["cafeteria", "food lounge"]]]
-  ],
-  ["+",
-    ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0],
-    ["case",
-      ["all", ["has", "height"], ["!=", ["get", "height"], "undefined"], [">", ["to-number", ["get", "height"]], 0]],
-      ["to-number", ["get", "height"]],
-      2
-    ]
-  ],
+          "any",
+          ["==", ["downcase", ["get", "type"]], "lift"],
+          ["in", ["downcase", ["get", "type"]], ["literal", ["cafeteria", "piller","counter","security check","male washroom","female washroom","unisex washroom","drinking water","accessible washroom"]]],
+        ],
+        ["+",
+          ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0],
+          ["case",
+            ["all", ["has", "height"], ["!=", ["get", "height"], "undefined"], [">", ["to-number", ["get", "height"]], 0]],
+            ["to-number", ["get", "height"]],
+            2
+          ]
+        ],
         ["in", ["downcase", ["get", "type"]], ["literal", ["green area", "green area | pots"]]],
         ["+", ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0], 0.2],
         ["all", ["has", "height"], ["!=", ["get", "height"], "undefined"], [">", ["to-number", ["get", "height"]], 0]],
@@ -1027,6 +1116,13 @@ for (const feature of floorFeatures) {
   ) {
     icon = "reception-default";
     label = "Reception";
+  }
+    else if (
+    type.includes("counter") ||
+    polygonType.includes("counter")
+  ) {
+    icon = "reception-default";
+    label = name || "Counter";
   }
 
   if (!icon) continue;
@@ -1447,49 +1543,151 @@ for (const feature of floorFeatures) {
   }
 
   // ── GENERAL POINT IMAGE PLANES ────────────────────────────────────────
+  // const pointImagePlanes = [];
+
+  // for (const pointFeature of imagedPoints) {
+  //   const p = pointFeature.properties || {};
+  //   const imageUrl = getImageFileUrl(p.imageFile);
+  //   if (!imageUrl) continue;
+
+  //   const polygonIds = [
+  //     ...(p.associatedPolygons || []),
+  //     ...(pointFeature.associatedPolygons || []),
+  //   ].map(String);
+
+  //   if (polygonIds.length > 0) {
+  //     const planes = await buildPlanesForPolygons(imageUrl, polygonIds, 0.65);
+  //     pointImagePlanes.push(...planes);
+  //     continue;
+  //   }
+
+  //   const fallbackCoords = p.centroid || pointFeature.geometry?.coordinates;
+  //   if (!fallbackCoords) continue;
+
+  //   const texture = await loadTexture(imageUrl);
+  //   if (!texture) continue;
+
+  //   const aspect =
+  //     texture?.image?.width && texture?.image?.height
+  //       ? texture.image.width / texture.image.height
+  //       : 1;
+
+  //   const defaultSize = 1.5;
+  //   pointImagePlanes.push({
+  //     center: fallbackCoords,
+  //     texture,
+  //     scaleX: defaultSize * aspect,
+  //     scaleY: defaultSize,
+  //     z: 3.06,
+  //     rot: 0,
+  //   });
+  // }
+
+  // if (pointImagePlanes.length) {
+  //   addTrackedLogoLayer(`point-image-3d-${floor}`, pointImagePlanes);
+  // }
   const pointImagePlanes = [];
 
-  for (const pointFeature of imagedPoints) {
-    const p = pointFeature.properties || {};
-    const imageUrl = getImageFileUrl(p.imageFile);
-    if (!imageUrl) continue;
+for (const pointFeature of imagedPoints) {
+  const p = pointFeature.properties || {};
 
-    const polygonIds = [
-      ...(p.associatedPolygons || []),
-      ...(pointFeature.associatedPolygons || []),
-    ].map(String);
+  const type = String(
+    p.type ||
+    p.polygonType ||
+    ""
+  ).toLowerCase();
 
-    if (polygonIds.length > 0) {
-      const planes = await buildPlanesForPolygons(imageUrl, polygonIds, 0.65);
-      pointImagePlanes.push(...planes);
-      continue;
-    }
+  // only cafeteria flow
+  if (!type.includes("cafeteria")) continue;
 
-    const fallbackCoords = p.centroid || pointFeature.geometry?.coordinates;
-    if (!fallbackCoords) continue;
+  const polygonIds = [
+    ...(p.associatedPolygons || []),
+    ...(pointFeature.associatedPolygons || []),
+  ].map(String);
 
-    const texture = await loadTexture(imageUrl);
-    if (!texture) continue;
+  if (!polygonIds.length) continue;
 
-    const aspect =
-      texture?.image?.width && texture?.image?.height
-        ? texture.image.width / texture.image.height
-        : 1;
+  let texture = null;
 
-    const defaultSize = 1.5;
+  // ── IMAGE FLOW ─────────────────────────────────────
+  const imageUrl = getImageFileUrl(p.imageFile);
+
+  if (imageUrl) {
+    texture = await loadTexture(imageUrl);
+  }
+
+  // ── TEXT FLOW ──────────────────────────────────────
+  if (!texture) {
+    texture = await createTextTexture(
+      p.name || "Cafeteria"
+    );
+  }
+
+  if (!texture) continue;
+
+  const aspect =
+    texture?.image?.width &&
+    texture?.image?.height
+      ? texture.image.width / texture.image.height
+      : 2;
+
+  for (const polyId of polygonIds) {
+    const linkedPolygon =
+      polygonLookup.get(polyId);
+
+    if (!linkedPolygon) continue;
+
+    const center =
+      getPoleOfInaccessibility(
+        linkedPolygon.geometry
+      ) ||
+      getPolygonCenter(
+        linkedPolygon.geometry
+      );
+
+    if (!center) continue;
+
+    const {
+      widthM,
+      heightM,
+    } = getPolygonDimensionsMeters(
+      linkedPolygon.geometry
+    );
+
+    const roofZ =
+      getFeatureTopHeight(
+        linkedPolygon.properties
+      ) + 0.06;
+
+    const {
+      scaleX,
+      scaleY,
+    } = computePlaneScale(
+      widthM,
+      heightM,
+      aspect,
+      0.7
+    );
+
     pointImagePlanes.push({
-      center: fallbackCoords,
+      center,
       texture,
-      scaleX: defaultSize * aspect,
-      scaleY: defaultSize,
-      z: 3.06,
-      rot: 0,
+      scaleX,
+      scaleY,
+      z: roofZ,
+      rot: getPolygonRotationRad(
+        linkedPolygon.geometry
+      ),
     });
   }
+}
 
-  if (pointImagePlanes.length) {
-    addTrackedLogoLayer(`point-image-3d-${floor}`, pointImagePlanes);
-  }
+if (pointImagePlanes.length) {
+  addTrackedLogoLayer(
+    `point-image-3d-${floor}`,
+    pointImagePlanes
+  );
+}
     };
 
     if (!map.isStyleLoaded()) {
@@ -1726,55 +1924,7 @@ graphRef.current = graph;
 
 // render current floor only
 renderRouteForFloor(coords, floor);
-  // const coords = path.map((k) => {
-  //   const [lng, lat, floorNo] = k.split(",");
 
-  //   return {
-  //     coord: [
-  //       parseFloat(lng),
-  //       parseFloat(lat),
-  //     ],
-  //     floor: parseInt(floorNo),
-  //   };
-  // });
-
-  // console.log("ROUTE COORDS:", coords);
-
-  // // show only current floor route
-  // const currentFloorCoords = coords
-  //   .filter((p) => p.floor === floor)
-  //   .map((p) => p.coord);
-
-  // const routeGeo = {
-  //   type: "Feature",
-  //   geometry: {
-  //     type: "LineString",
-  //     coordinates: currentFloorCoords,
-  //   },
-  // };
-
-  // if (map.getSource("route")) {
-  //   map.getSource("route").setData(routeGeo);
-  // } else {
-  //   map.addSource("route", {
-  //     type: "geojson",
-  //     data: routeGeo,
-  //   });
-
-  //   map.addLayer({
-  //     id: "route-line",
-  //     type: "line",
-  //     source: "route",
-  //     layout: {
-  //       "line-cap": "round",
-  //       "line-join": "round",
-  //     },
-  //     paint: {
-  //       "line-color": "#007AFF",
-  //       "line-width": 5,
-  //     },
-  //   });
-  // }
 };
 useEffect(() => {
   if (!routePathRef.current?.length) return;
@@ -1879,21 +2029,6 @@ const selectDest = (feature) => {
     handleRouting();
   }
 };
-  // const selectSource = (feature) => {
-  //   const coords = feature.properties?.centroid || feature.geometry.coordinates;
-  //   if (sourceRef.current) sourceRef.current.setLngLat(coords);
-  //   setSourceQuery(feature.properties?.name || "");
-  //   setSourceResults([]);
-  //   handleRouting();
-  // };
-
-  // const selectDest = (feature) => {
-  //   const coords = feature.properties?.centroid || feature.geometry.coordinates;
-  //   if (destRef.current) destRef.current.setLngLat(coords);
-  //   setDestQuery(feature.properties?.name || "");
-  //   setDestResults([]);
-  //   handleRouting();
-  // };
 
   const dropdownStyle = {
     background: "#fff",
