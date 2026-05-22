@@ -12,8 +12,8 @@ export const useMap = () => {
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
-      center: [77.2437,28.6063],
-      zoom:18,
+      center: [77.20451273263606,28.543355986530234],
+      zoom:16,
       pitch:45
     });
     map.addControl(new maplibregl.NavigationControl());

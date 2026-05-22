@@ -135,16 +135,48 @@ const getPolygonRotationRad = (geometry) => {
   return -angleRad;
 };
 
+// const getFeatureTopHeight = (props = {}) => {
+//   const baseHeight = Number(props.baseHeight ?? 0) || 0;
+//   const type = String(props.type || "").toLowerCase();
+//   const parsedHeight = Number(props.height);
+//   const hasValidHeight = Number.isFinite(parsedHeight) && parsedHeight > 0;
+
+//   if (type === "wall") return baseHeight + (hasValidHeight ? parsedHeight : 4);
+//   if (type === "booth") return baseHeight + 2;
+//   if (type === "green area" || type === "green area | pots") return baseHeight + 0.2;
+//   // For all other types: only add height if explicitly set, otherwise 0
+//   return baseHeight + (hasValidHeight ? parsedHeight : 0);
+// };
 const getFeatureTopHeight = (props = {}) => {
   const baseHeight = Number(props.baseHeight ?? 0) || 0;
   const type = String(props.type || "").toLowerCase();
   const parsedHeight = Number(props.height);
   const hasValidHeight = Number.isFinite(parsedHeight) && parsedHeight > 0;
 
-  if (type === "wall") return baseHeight + (hasValidHeight ? parsedHeight : 4);
-  if (type === "booth") return baseHeight + 2;
-  if (type === "green area" || type === "green area | pots") return baseHeight + 0.2;
-  // For all other types: only add height if explicitly set, otherwise 0
+  if (type === "wall") {
+    return baseHeight + (hasValidHeight ? parsedHeight : 4);
+  }
+
+  if (type === "booth") {
+    return baseHeight + 2;
+  }
+
+  if (
+    type === "cafeteria" ||
+    type.includes("food") ||
+    type === "lift"
+  ) {
+    return baseHeight + (hasValidHeight ? parsedHeight : 2);
+  }
+
+  if (
+    type === "green area" ||
+    type === "green area | pots"
+  ) {
+    return baseHeight + 0.2;
+  }
+
+  // For all other types
   return baseHeight + (hasValidHeight ? parsedHeight : 0);
 };
 
@@ -297,10 +329,48 @@ const buildLogoPlaneLayer = (map, layerId, planes) => {
           new THREE.Vector3(1, 0, 0),
           Math.PI
         );
-        const rotationZ = new THREE.Matrix4().makeRotationAxis(
-          new THREE.Vector3(0, 0, 1),
-          plane.rot || 0
-        );
+        // const rotationZ = new THREE.Matrix4().makeRotationAxis(
+        //   new THREE.Vector3(0, 0, 1),
+        //   plane.rot || 0
+        // );
+        // current map bearing
+        const mapBearingRad =
+          (-map.getBearing() * Math.PI) / 180;
+
+        // make image face camera
+        // const dynamicRotation =
+        //   mapBearingRad + (plane.rot || 0);
+
+        // const rotationZ =
+        //   new THREE.Matrix4().makeRotationAxis(
+        //     new THREE.Vector3(0, 0, 1),
+        //     dynamicRotation
+        //   );
+        const normalizedBearing =
+  ((map.getBearing() % 360) + 360) % 360;
+
+          const planeDeg =
+            (((plane.rot || 0) * 180) / Math.PI + 360) % 360;
+
+          // difference between camera + polygon direction
+          let delta =
+            normalizedBearing - planeDeg;
+
+          delta = ((delta + 540) % 360) - 180;
+
+          // ONLY flip when backside visible
+          const shouldFlip =
+            Math.abs(delta) > 90;
+
+          const finalRotation =
+            (plane.rot || 0) +
+            (shouldFlip ? Math.PI : 0);
+
+          const rotationZ =
+            new THREE.Matrix4().makeRotationAxis(
+              new THREE.Vector3(0, 0, 1),
+              finalRotation
+            );
         const modelMatrix = new THREE.Matrix4()
           .makeTranslation(plane.tx, plane.ty, plane.tz)
           .multiply(rotationZ)
@@ -357,7 +427,9 @@ export default function IndoorMap() {
   const sourceRef = useRef(null);
   const destRef = useRef(null);
   const customLayerIdsRef = useRef([]);
-
+  const routePathRef = useRef([]);
+  const graphRef = useRef(null);
+  
   const [sourceQuery, setSourceQuery] = useState("");
   const [destQuery, setDestQuery] = useState("");
   const [sourceResults, setSourceResults] = useState([]);
@@ -393,6 +465,111 @@ export default function IndoorMap() {
     });
   }, []);
 
+  // ─────────────────────────────────────────────────────────────
+// FLOOR CLEANUP + SWITCH RENDER
+// ─────────────────────────────────────────────────────────────
+
+const cleanupFloor = (targetFloor) => {
+  const map = mapRef.current;
+  if (!map) return;
+
+  // remove markers
+  markersRef.current.forEach((m) => {
+    try {
+      m.remove();
+    } catch {}
+  });
+
+  markersRef.current = [];
+
+  // remove custom 3d layers
+  customLayerIdsRef.current.forEach((id) => {
+    try {
+      if (map.getLayer(id)) {
+        map.removeLayer(id);
+      }
+    } catch {}
+  });
+
+  customLayerIdsRef.current = [];
+
+  // remove all generated layers
+  const styleLayers = map.getStyle()?.layers || [];
+
+  styleLayers.forEach((layer) => {
+    const id = layer.id;
+
+    if (
+      id.includes(`-${targetFloor}`) ||
+      id.includes(`_${targetFloor}_`) ||
+      id.startsWith("animal") ||
+      id.startsWith("route") ||
+      id.startsWith("boundary") ||
+      id.startsWith("section") ||
+      id.startsWith("subsection") ||
+      id.startsWith("sponsor") ||
+      id.startsWith("exhibitor") ||
+      id.startsWith("point-image") ||
+      id.startsWith("default-poi")
+    ) {
+      try {
+        if (map.getLayer(id)) {
+          map.removeLayer(id);
+        }
+      } catch {}
+    }
+  });
+
+  // remove sources
+  const styleSources = map.getStyle()?.sources || {};
+
+  Object.keys(styleSources).forEach((id) => {
+    if (
+      id.includes(`-${targetFloor}`) ||
+      id.includes(`_${targetFloor}_`) ||
+      id.startsWith("animal") ||
+      id.startsWith("route") ||
+      id.startsWith("boundary") ||
+      id.startsWith("section") ||
+      id.startsWith("subsection") ||
+      id.startsWith("sponsor") ||
+      id.startsWith("exhibitor") ||
+      id.startsWith("point-image") ||
+      id.startsWith("default-poi")
+    ) {
+      try {
+        if (map.getSource(id)) {
+          map.removeSource(id);
+        }
+      } catch {}
+    }
+  });
+};
+
+// ─────────────────────────────────────────────────────────────
+// FLOOR SWITCH FUNCTION
+// ─────────────────────────────────────────────────────────────
+
+const switchFloor = async (newFloor) => {
+  if (newFloor === floor) return;
+
+  // remove previous floor render
+  cleanupFloor(floor);
+
+  // update floor state
+  setFloor(newFloor);
+
+  // wait next frame so react updates
+  requestAnimationFrame(() => {
+    // re-render route for floor
+    if (routePathRef.current?.length) {
+      renderRouteForFloor(
+        routePathRef.current,
+        newFloor
+      );
+    }
+  });
+};
   // 🧱 Rendering Logic
   useEffect(() => {
     const map = mapRef.current;
@@ -550,6 +727,19 @@ export default function IndoorMap() {
         ],
         ["==", ["get", "type"], "Booth"],
         ["+", ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0], 2],
+        [
+    "any",
+    ["==", ["downcase", ["get", "type"]], "lift"],
+    ["in", ["downcase", ["get", "type"]], ["literal", ["cafeteria", "food lounge"]]]
+  ],
+  ["+",
+    ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0],
+    ["case",
+      ["all", ["has", "height"], ["!=", ["get", "height"], "undefined"], [">", ["to-number", ["get", "height"]], 0]],
+      ["to-number", ["get", "height"]],
+      2
+    ]
+  ],
         ["in", ["downcase", ["get", "type"]], ["literal", ["green area", "green area | pots"]]],
         ["+", ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0], 0.2],
         ["all", ["has", "height"], ["!=", ["get", "height"], "undefined"], [">", ["to-number", ["get", "height"]], 0]],
@@ -709,6 +899,193 @@ export default function IndoorMap() {
     keys.forEach((k) => centroidFeaturesByLandmark.set(String(k), f));
   }
 
+    // ── DEFAULT SERVICE ICONS + LABELS ───────────────────────────────────
+  const defaultPoiFeatures = [];
+
+  // Local asset icons
+  const defaultIcons = {
+    cafeteria: "/assets/icons/cafeteria.png",
+    lift: "/assets/icons/lift.png",
+    maleWashroom: "/assets/icons/maleWashroom.png",
+    femaleWashroom: "/assets/icons/femaleWashroom.png",
+    unisexWashroom: "/assets/icons/unisex_washroom.png",
+    stairs: "/assets/icons/stairs.png",
+    water: "/assets/icons/water.png",
+    reception: "/assets/icons/reception.png",
+  };
+
+  const ensureDefaultIcon = async (iconId, imagePath) => {
+    if (map.hasImage(iconId)) return;
+
+    await new Promise((resolve) => {
+      map.loadImage(imagePath, (err, image) => {
+        if (!err && image && !map.hasImage(iconId)) {
+          map.addImage(iconId, image);
+        }
+        resolve();
+      });
+    });
+  };
+
+  // preload icons
+  await Promise.all([
+    ensureDefaultIcon("cafeteria-default", defaultIcons.cafeteria),
+    ensureDefaultIcon("lift-default", defaultIcons.lift),
+    ensureDefaultIcon("male-washroom-default", defaultIcons.maleWashroom),
+    ensureDefaultIcon("female-washroom-default", defaultIcons.femaleWashroom),
+    ensureDefaultIcon("unisex-washroom-default", defaultIcons.unisexWashroom),
+    ensureDefaultIcon("stairs-default", defaultIcons.stairs),
+    ensureDefaultIcon("water-default", defaultIcons.water),
+    ensureDefaultIcon("reception-default", defaultIcons.reception),
+  ]);
+
+for (const feature of floorFeatures) {
+  const p = feature.properties || {};
+
+  const type = String(
+    p.type ||
+    p.polygonType ||
+    p.subType ||
+    ""
+  ).toLowerCase();
+
+  const polygonType = String(
+    p.polygonType || ""
+  ).toLowerCase();
+
+  const name = String(p.name || "").toLowerCase();
+
+  const hasCustomImage =
+    p.imageFile ||
+    p.logo ||
+    p.logoUrl;
+
+  let icon = null;
+  let label = "";
+
+  // ── CAFETERIA ─────────────────────────────────────────────
+ if (
+    type.includes("lift") ||
+    polygonType.includes("lift")
+  ) {
+    icon = "lift-default";
+
+    // NO LABEL
+    label = "";
+  }
+  else if (
+    type.includes("female washroom") ||
+    polygonType.includes("female washroom") ||
+    (type.includes("washroom") && name.includes("female"))
+  ) {
+    icon = "female-washroom-default";
+
+    // NO LABEL
+    label = "";
+  }
+  // ── MALE WASHROOM ────────────────────────────────────────
+  else if (
+    type.includes("male washroom") ||
+    polygonType.includes("male washroom") ||
+    (type.includes("washroom") && name.includes("male"))
+  ) {
+    icon = "male-washroom-default";
+
+    // NO LABEL
+    label = "";
+  }
+
+  // ── FEMALE WASHROOM ──────────────────────────────────────
+
+
+  // ── UNISEX / ACCESSIBLE WASHROOM ────────────────────────
+  else if (
+    type.includes("unisex washroom") ||
+    type.includes("accessible washroom") ||
+    polygonType.includes("unisex washroom") ||
+    polygonType.includes("accessible washroom")
+  ) {
+    icon = "unisex-washroom-default";
+
+    // NO LABEL
+    label = "";
+  }
+
+  // ── DRINKING WATER ───────────────────────────────────────
+  else if (
+    type.includes("drinking water") ||
+    polygonType.includes("drinking water")
+  ) {
+    icon = "water-default";
+    label = "Water";
+  }
+
+  // ── RECEPTION ────────────────────────────────────────────
+  else if (
+    type.includes("reception") ||
+    polygonType.includes("reception")
+  ) {
+    icon = "reception-default";
+    label = "Reception";
+  }
+
+  if (!icon) continue;
+
+  const center =
+    p.centroid ||
+    getPoleOfInaccessibility(feature.geometry) ||
+    getPolygonCenter(feature.geometry);
+
+  if (!center) continue;
+
+  defaultPoiFeatures.push({
+    type: "Feature",
+    geometry: {
+      type: "Point",
+      coordinates: center,
+    },
+    properties: {
+      icon,
+      name: label,
+    },
+  });
+}
+  if (defaultPoiFeatures.length) {
+    map.addSource(`default-poi-src-${floor}`, {
+      type: "geojson",
+      data: {
+        type: "FeatureCollection",
+        features: defaultPoiFeatures,
+      },
+    });
+
+    map.addLayer({
+      id: `default-poi-layer-${floor}`,
+      type: "symbol",
+      source: `default-poi-src-${floor}`,
+      minzoom: 17,
+      layout: {
+        "icon-image": ["get", "icon"],
+        "icon-size": 0.06,
+        "icon-anchor": "center",
+
+        "text-field": ["get", "name"],
+        "text-size": 12,
+        "text-anchor": "top",
+        // "text-offset": [0, 1],
+
+        "text-allow-overlap": true,
+        "icon-allow-overlap": true,
+        "text-ignore-placement": true,
+        "icon-ignore-placement": true,
+      },
+      paint: {
+        "text-color": "#111",
+        "text-halo-color": "#fff",
+        "text-halo-width": 1.5,
+      },
+    });
+  }
   // ── 6. SECTION LABEL + LOGO (symbol layer, zoom 16–17) ───────────────
   const sectionSymbolFeatures = [];
 
@@ -1147,69 +1524,266 @@ export default function IndoorMap() {
     return () => map.off("click", onClick);
   }, [ready]);
 
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !ready || !venueData) return;
-    if (sourceRef.current || destRef.current) return;
 
-    const center = [venueData.lng, venueData.lat];
-    const src = new maplibregl.Marker({ draggable: true, color: "green" })
-      .setLngLat(center)
-      .addTo(map);
-    const dest = new maplibregl.Marker({ draggable: true, color: "red" })
-      .setLngLat([center[0] + 0.0003, center[1] + 0.0003])
-      .addTo(map);
 
-    sourceRef.current = src;
-    destRef.current = dest;
+  // const handleRouting = async () => {
+  //     if (!sourceRef.current || !destRef.current) return;
 
-    const run = () => handleRouting();
-    src.on("dragend", run);
-    dest.on("dragend", run);
-  }, [ready, venueData]);
+  //   const map = mapRef.current;
+  //   const src = sourceRef.current.getLngLat();
+  //   const dest = destRef.current.getLngLat();
+  //   console.log("SRC:", src);
+  //   console.log("DEST:", dest);
 
-  const handleRouting = async () => {
-    const map = mapRef.current;
-    const src = sourceRef.current.getLngLat();
-    const dest = destRef.current.getLngLat();
-    console.log("SRC:", src);
-    console.log("DEST:", dest);
+  //   const graph = await fetchNearbyNodes(src.lat, src.lng);
+  //   console.log("GRAPH:", graph);
+  //   if (!graph) return;
 
-    const graph = await fetchNearbyNodes(src.lat, src.lng);
-    console.log("GRAPH:", graph);
-    if (!graph) return;
+  //   const start = findClosestNode(graph, src);
+  //   const end = findClosestNode(graph, dest);
+  //   console.log("START:", start);
+  //   console.log("END:", end);
 
-    const start = findClosestNode(graph, src);
-    const end = findClosestNode(graph, dest);
-    console.log("START:", start);
-    console.log("END:", end);
+  //   const path = dijkstra(graph, start.key, end.key);
+  //   console.log("PATH:", path);
 
-    const path = dijkstra(graph, start.key, end.key);
-    console.log("PATH:", path);
+  //   const coords = path.map((k) => {
+  //     const [lng, lat] = k.split(",");
+  //     return [parseFloat(lng), parseFloat(lat)];
+  //   });
 
-    const coords = path.map((k) => {
-      const [lng, lat] = k.split(",");
-      return [parseFloat(lng), parseFloat(lat)];
-    });
+  //   const routeGeo = {
+  //     type: "Feature",
+  //     geometry: { type: "LineString", coordinates: coords },
+  //   };
 
-    const routeGeo = {
-      type: "Feature",
-      geometry: { type: "LineString", coordinates: coords },
-    };
+  //   if (map.getSource("route")) {
+  //     map.getSource("route").setData(routeGeo);
+  //   } else {
+  //     map.addSource("route", { type: "geojson", data: routeGeo });
+  //     map.addLayer({
+  //       id: "route-line",
+  //       type: "line",
+  //       source: "route",
+  //       paint: { "line-color": "#007AFF", "line-width": 5 },
+  //     });
+  //   }
+  // };
+
+  const renderRouteForFloor = (pathCoords, targetFloor) => {
+  const map = mapRef.current;
+
+  if (!map || !pathCoords?.length) return;
+
+  const currentFloorCoords = pathCoords
+    .filter((p) => p.floor === targetFloor)
+    .map((p) => p.coord);
+
+  // remove old route if no coords on floor
+  if (!currentFloorCoords.length) {
+    if (map.getLayer("route-line")) {
+      map.removeLayer("route-line");
+    }
 
     if (map.getSource("route")) {
-      map.getSource("route").setData(routeGeo);
-    } else {
-      map.addSource("route", { type: "geojson", data: routeGeo });
-      map.addLayer({
-        id: "route-line",
-        type: "line",
-        source: "route",
-        paint: { "line-color": "#007AFF", "line-width": 5 },
-      });
+      map.removeSource("route");
     }
+
+    return;
+  }
+
+  const routeGeo = {
+    type: "Feature",
+    geometry: {
+      type: "LineString",
+      coordinates: currentFloorCoords,
+    },
   };
 
+  if (map.getSource("route")) {
+    map.getSource("route").setData(routeGeo);
+  } else {
+    map.addSource("route", {
+      type: "geojson",
+      data: routeGeo,
+    });
+
+    map.addLayer({
+      id: "route-line",
+      type: "line",
+      source: "route",
+      layout: {
+        "line-cap": "round",
+        "line-join": "round",
+      },
+      paint: {
+        "line-color": "#007AFF",
+        "line-width": 5,
+      },
+    });
+  }
+};
+  const handleRouting = async () => {
+  if (!sourceRef.current || !destRef.current) return;
+
+  const map = mapRef.current;
+
+  const src = sourceRef.current.getLngLat();
+  const dest = destRef.current.getLngLat();
+
+  console.log("SRC:", src);
+  console.log("DEST:", dest);
+
+  const graph = await fetchNearbyNodes(
+    src.lat,
+    src.lng
+  );
+
+  console.log("GRAPH:", graph);
+
+  if (!graph) return;
+
+  // IMPORTANT:
+  // attach floor to source & destination
+  const srcPoint = {
+    lng: src.lng,
+    lat: src.lat,
+    floor: src.floor, // current selected floor
+  };
+
+  const destPoint = {
+    lng: dest.lng,
+    lat: dest.lat,
+    floor: dest.floor, // change if destination has separate floor
+  };
+
+  // optional preferences
+  const selectedNodes = [];
+  const unselectedNodes = [];
+
+  const liftNodes = [];
+  const stairsNodes = [];
+  const escalatorNodes = [];
+  const rampNodes = [];
+
+  const start = findClosestNode(
+    graph,
+    srcPoint
+  );
+
+  const end = findClosestNode(
+    graph,
+    destPoint
+  );
+
+  console.log("START:", start);
+  console.log("END:", end);
+
+  if (!start || !end) {
+    console.log("No valid start/end node");
+    return;
+  }
+
+  const path = dijkstra(
+    graph,
+    start.key,
+    end.key,
+    "3d",
+    selectedNodes,
+    unselectedNodes,
+    liftNodes,
+    stairsNodes,
+    escalatorNodes,
+    rampNodes
+  );
+
+  console.log("PATH:", path);
+
+  if (!path || !path.length) {
+    console.log("No path found");
+    return;
+  }
+
+  const coords = path.map((k) => {
+  const [lng, lat, floorNo] = k.split(",");
+
+  return {
+    coord: [
+      parseFloat(lng),
+      parseFloat(lat),
+    ],
+    floor: parseInt(floorNo),
+  };
+});
+
+console.log("ROUTE COORDS:", coords);
+
+// persist full route
+routePathRef.current = coords;
+
+// persist graph
+graphRef.current = graph;
+
+// render current floor only
+renderRouteForFloor(coords, floor);
+  // const coords = path.map((k) => {
+  //   const [lng, lat, floorNo] = k.split(",");
+
+  //   return {
+  //     coord: [
+  //       parseFloat(lng),
+  //       parseFloat(lat),
+  //     ],
+  //     floor: parseInt(floorNo),
+  //   };
+  // });
+
+  // console.log("ROUTE COORDS:", coords);
+
+  // // show only current floor route
+  // const currentFloorCoords = coords
+  //   .filter((p) => p.floor === floor)
+  //   .map((p) => p.coord);
+
+  // const routeGeo = {
+  //   type: "Feature",
+  //   geometry: {
+  //     type: "LineString",
+  //     coordinates: currentFloorCoords,
+  //   },
+  // };
+
+  // if (map.getSource("route")) {
+  //   map.getSource("route").setData(routeGeo);
+  // } else {
+  //   map.addSource("route", {
+  //     type: "geojson",
+  //     data: routeGeo,
+  //   });
+
+  //   map.addLayer({
+  //     id: "route-line",
+  //     type: "line",
+  //     source: "route",
+  //     layout: {
+  //       "line-cap": "round",
+  //       "line-join": "round",
+  //     },
+  //     paint: {
+  //       "line-color": "#007AFF",
+  //       "line-width": 5,
+  //     },
+  //   });
+  // }
+};
+useEffect(() => {
+  if (!routePathRef.current?.length) return;
+
+  renderRouteForFloor(
+    routePathRef.current,
+    floor
+  );
+}, [floor]);
   const searchPlaces = (query) => {
     if (!geo || !query) return [];
     const q = query.toLowerCase();
@@ -1239,20 +1813,87 @@ export default function IndoorMap() {
   };
 
   const selectSource = (feature) => {
-    const coords = feature.properties?.centroid || feature.geometry.coordinates;
-    if (sourceRef.current) sourceRef.current.setLngLat(coords);
-    setSourceQuery(feature.properties?.name || "");
-    setSourceResults([]);
-    handleRouting();
-  };
+  const map = mapRef.current;
+  if (!map) return;
 
-  const selectDest = (feature) => {
-    const coords = feature.properties?.centroid || feature.geometry.coordinates;
-    if (destRef.current) destRef.current.setLngLat(coords);
-    setDestQuery(feature.properties?.name || "");
-    setDestResults([]);
+  const coords =
+    feature.properties?.centroid ||
+    feature.geometry.coordinates;
+
+  // create marker ONLY after selecting from search
+  if (!sourceRef.current) {
+    sourceRef.current = new maplibregl.Marker({
+      color: "green",
+    })
+      .setLngLat(coords)
+      .addTo(map);
+  } else {
+    sourceRef.current.setLngLat(coords);
+  }
+
+  setSourceQuery(feature.properties?.name || "");
+  setSourceResults([]);
+
+  // fly to selected place
+  map.flyTo({
+    center: coords,
+    zoom: 20,
+  });
+
+  // route only if both markers exist
+  if (sourceRef.current && destRef.current) {
     handleRouting();
-  };
+  }
+};
+
+const selectDest = (feature) => {
+  const map = mapRef.current;
+  if (!map) return;
+
+  const coords =
+    feature.properties?.centroid ||
+    feature.geometry.coordinates;
+
+  // create marker ONLY after selecting from search
+  if (!destRef.current) {
+    destRef.current = new maplibregl.Marker({
+      color: "red",
+    })
+      .setLngLat(coords)
+      .addTo(map);
+  } else {
+    destRef.current.setLngLat(coords);
+  }
+
+  setDestQuery(feature.properties?.name || "");
+  setDestResults([]);
+
+  // fly to selected place
+  map.flyTo({
+    center: coords,
+    zoom: 20,
+  });
+
+  // route only if both markers exist
+  if (sourceRef.current && destRef.current) {
+    handleRouting();
+  }
+};
+  // const selectSource = (feature) => {
+  //   const coords = feature.properties?.centroid || feature.geometry.coordinates;
+  //   if (sourceRef.current) sourceRef.current.setLngLat(coords);
+  //   setSourceQuery(feature.properties?.name || "");
+  //   setSourceResults([]);
+  //   handleRouting();
+  // };
+
+  // const selectDest = (feature) => {
+  //   const coords = feature.properties?.centroid || feature.geometry.coordinates;
+  //   if (destRef.current) destRef.current.setLngLat(coords);
+  //   setDestQuery(feature.properties?.name || "");
+  //   setDestResults([]);
+  //   handleRouting();
+  // };
 
   const dropdownStyle = {
     background: "#fff",
@@ -1321,7 +1962,8 @@ export default function IndoorMap() {
           {venueData.floors.map((f) => (
             <button
               key={f}
-              onClick={() => setFloor(f)}
+              // onClick={() => setFloor(f)}
+              onClick={() => switchFloor(f)}
               style={{
                 display: "block",
                 margin: "4px 0",
