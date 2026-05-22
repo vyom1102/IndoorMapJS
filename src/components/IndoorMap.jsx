@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 import { useMap } from "../hooks/useMap";
 import { getGeojsonData } from "../services/api";
@@ -14,6 +15,13 @@ import { loadVenueData } from "../services/venueApi";
 
 const baseUrl = import.meta.env.VITE_BASE_URL || "";
 const FIXED_GLB_SIZE_PX = 80;
+const ESCALATOR_MODEL_URL =
+  import.meta.env.VITE_ESCALATOR_GLB_URL || "/assets/models/Escalator.glb";
+const ESCALATOR_MODEL_LENGTH_M = 4.5;
+const ESCALATOR_MODEL_WIDTH_M = 1.1;
+const ESCALATOR_MODEL_HEIGHT_M = 1.7;
+const ESCALATOR_MODEL_ROTATION_OFFSET_RAD = Math.PI * 1.5;
+const ESCALATOR_MODEL_UPRIGHT_ROLL_RAD = Math.PI;
 // Fixed pixel size (in metres equivalent) for boundary logos
 const BOUNDARY_LOGO_SIZE_M = 20;
 
@@ -135,6 +143,25 @@ const getPolygonRotationRad = (geometry) => {
   return -angleRad;
 };
 
+const isEscalatorFeature = (feature) => {
+  const p = feature?.properties || {};
+  const type = String(p.type || p.polygonType || "").toLowerCase();
+  return type.includes("escalator");
+};
+
+const isPolygonFeature = (feature) => {
+  const type = feature?.geometry?.type;
+  return type === "Polygon" || type === "MultiPolygon";
+};
+
+const isEscalatorPolygonFeature = (feature) => {
+  return isEscalatorFeature(feature) && isPolygonFeature(feature);
+};
+
+const getEscalatorModelUrl = (feature) => {
+  return getObjectFileUrl(feature?.properties?.objectFile) || ESCALATOR_MODEL_URL;
+};
+
 // const getFeatureTopHeight = (props = {}) => {
 //   const baseHeight = Number(props.baseHeight ?? 0) || 0;
 //   const type = String(props.type || "").toLowerCase();
@@ -178,6 +205,10 @@ const getFeatureTopHeight = (props = {}) => {
 
   // For all other types
   return baseHeight + (hasValidHeight ? parsedHeight : 0);
+};
+
+const getFeatureBaseHeight = (props = {}) => {
+  return Number(props.baseHeight ?? 0) || 0;
 };
 
 const getFeatureAnchorCoordinates = (feature) => {
@@ -391,6 +422,122 @@ const buildLogoPlaneLayer = (map, layerId, planes) => {
   });
 };
 
+const fitGltfToEscalatorFootprint = (object) => {
+  const box = new THREE.Box3().setFromObject(object);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+
+  const scaleX = ESCALATOR_MODEL_WIDTH_M / Math.max(size.x, 0.001);
+  const scaleY = ESCALATOR_MODEL_HEIGHT_M / Math.max(size.y, 0.001);
+  const scaleZ = ESCALATOR_MODEL_LENGTH_M / Math.max(size.z, 0.001);
+  object.scale.set(scaleX, scaleY, scaleZ);
+  object.position.set(
+    -center.x * scaleX,
+    -box.min.y * scaleY,
+    -center.z * scaleZ
+  );
+};
+
+const buildGltfModelLayer = (map, layerId, modelUrl, placements) => {
+  map.addLayer({
+    id: layerId,
+    type: "custom",
+    renderingMode: "3d",
+    onAdd: function (_map, gl) {
+      this.camera = new THREE.Camera();
+      this.scene = new THREE.Scene();
+      this.renderer = new THREE.WebGLRenderer({
+        canvas: _map.getCanvas(),
+        context: gl,
+        antialias: true,
+      });
+      this.renderer.autoClear = false;
+
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
+      directionalLight.position.set(0, -70, 100).normalize();
+      this.scene.add(ambientLight, directionalLight);
+
+      this.placements = placements.map((placement) => {
+        const mercator = maplibregl.MercatorCoordinate.fromLngLat(
+          { lng: placement.center[0], lat: placement.center[1] },
+          placement.z
+        );
+        const translate = new THREE.Matrix4().makeTranslation(
+          mercator.x,
+          mercator.y,
+          mercator.z
+        );
+        const rotateZ = new THREE.Matrix4().makeRotationAxis(
+          new THREE.Vector3(0, 0, 1),
+          (placement.rot || 0) + ESCALATOR_MODEL_ROTATION_OFFSET_RAD
+        );
+        const rotateX = new THREE.Matrix4().makeRotationAxis(
+          new THREE.Vector3(1, 0, 0),
+          Math.PI / 2
+        );
+        const uprightRoll = new THREE.Matrix4().makeRotationAxis(
+          new THREE.Vector3(0, 0, 1),
+          ESCALATOR_MODEL_UPRIGHT_ROLL_RAD
+        );
+        const scale = mercator.meterInMercatorCoordinateUnits();
+        const scaleMatrix = new THREE.Matrix4().makeScale(scale, -scale, scale);
+
+        return {
+          matrix: translate
+            .multiply(rotateZ)
+            .multiply(rotateX)
+            .multiply(uprightRoll)
+            .multiply(scaleMatrix),
+        };
+      });
+
+      new GLTFLoader().load(
+        modelUrl,
+        (gltf) => {
+          this.placements.forEach((placement) => {
+            const model = gltf.scene.clone(true);
+            fitGltfToEscalatorFootprint(model);
+            model.visible = false;
+            placement.model = model;
+            this.scene.add(model);
+          });
+          map.triggerRepaint();
+        },
+        undefined,
+        (error) => {
+          console.error(`Failed to load GLB model: ${modelUrl}`, error);
+        }
+      );
+    },
+    render: function (_gl, matrix) {
+      const base = new THREE.Matrix4().fromArray(matrix);
+
+      this.renderer.state.reset();
+
+      this.placements.forEach((placement) => {
+        if (!placement.model) return;
+        placement.model.visible = true;
+        this.camera.projectionMatrix = base.clone().multiply(placement.matrix);
+        this.renderer.render(this.scene, this.camera);
+        placement.model.visible = false;
+      });
+      map.triggerRepaint();
+    },
+    onRemove: function () {
+      this.scene?.traverse?.((object) => {
+        object.geometry?.dispose?.();
+        if (Array.isArray(object.material)) {
+          object.material.forEach((material) => material?.dispose?.());
+        } else {
+          object.material?.dispose?.();
+        }
+      });
+      this.renderer?.dispose?.();
+    },
+  });
+};
+
 // ─── Shared scale helper (aspect-correct fit inside polygon footprint) ────────
 const computePlaneScale = (widthM, heightM, aspect, coverFraction = 0.65) => {
   const maxWidth  = Math.max(0.3, widthM  * coverFraction);
@@ -583,6 +730,7 @@ const switchFloor = async (newFloor) => {
     "sponsor-logo-3d-",
     "exhibitor-logo-3d-",
     "point-image-3d-",
+    "escalator-model-3d-",
   ];
   allFloors.forEach((f) => {
     customLayerPrefixes.forEach((prefix) => {
@@ -602,12 +750,19 @@ const switchFloor = async (newFloor) => {
     customLayerIdsRef.current.push(layerId);
   };
 
+  const addTrackedGltfLayer = (layerId, modelUrl, placements) => {
+    buildGltfModelLayer(map, layerId, modelUrl, placements);
+    customLayerIdsRef.current.push(layerId);
+  };
+
   const floorFeatures = geo.features.filter(
     (f) => (f.properties?.floor ?? 0) === floor
   );
 
   const { rooms, boundaries, animals, sections, sponsorPoints, exhibitorPoints } =
     splitFeatures(floorFeatures);
+  const escalatorFeatures = floorFeatures.filter(isEscalatorPolygonFeature);
+  const renderableRooms = rooms.filter((feature) => !isEscalatorPolygonFeature(feature));
 
   const topSections = sections.filter(
     (f) => !f.properties?.subSection && f.properties?.type !== "Sub Section"
@@ -732,7 +887,8 @@ const createTextTexture = async (text) => {
       l.id.startsWith("point-image") ||
       l.id.startsWith("boundary-") ||
       l.id.startsWith("section-") ||
-      l.id.startsWith("subsection-")
+      l.id.startsWith("subsection-") ||
+      l.id.startsWith("default-poi")
     ) {
       if (map.getLayer(l.id)) map.removeLayer(l.id);
     }
@@ -747,7 +903,8 @@ const createTextTexture = async (text) => {
       id.startsWith("exhibitor") ||
       id.startsWith("boundary-") ||
       id.startsWith("section-") ||
-      id.startsWith("subsection-")
+      id.startsWith("subsection-") ||
+      id.startsWith("default-poi")
     ) {
       if (map.getSource(id)) map.removeSource(id);
     }
@@ -768,7 +925,7 @@ const createTextTexture = async (text) => {
   // ── 2. ROOMS (3D) ─────────────────────────────────────────────────────
   map.addSource(`floor_${floor}_rooms`, {
     type: "geojson",
-    data: { type: "FeatureCollection", features: rooms },
+    data: { type: "FeatureCollection", features: renderableRooms },
   });
   map.addLayer({
     id: `floor_${floor}_rooms`,
@@ -841,6 +998,38 @@ const createTextTexture = async (text) => {
       "fill-extrusion-opacity": 1,
     },
   });
+
+  // ── ESCALATORS (fixed-size GLB aligned to polygon direction) ──────────
+  const escalatorPlacementsByModel = new Map();
+
+  for (const feature of escalatorFeatures) {
+    const p = feature.properties || {};
+    const center =
+      (Array.isArray(p.centroid) ? p.centroid : null) ||
+      getPoleOfInaccessibility(feature.geometry) ||
+      getPolygonCenter(feature.geometry);
+    const modelUrl = getEscalatorModelUrl(feature);
+
+    if (!center || !modelUrl) continue;
+
+    const placements = escalatorPlacementsByModel.get(modelUrl) || [];
+    placements.push({
+      center,
+      z: getFeatureBaseHeight(p) + 0.02,
+      rot: getPolygonRotationRad(feature.geometry),
+    });
+    escalatorPlacementsByModel.set(modelUrl, placements);
+  }
+
+  Array.from(escalatorPlacementsByModel.entries()).forEach(
+    ([modelUrl, placements], index) => {
+      addTrackedGltfLayer(
+        `escalator-model-3d-${floor}-${index}`,
+        modelUrl,
+        placements
+      );
+    }
+  );
 
   // ── 3. SECTIONS (3D) ──────────────────────────────────────────────────
   map.addSource(`section-src-${floor}`, {
@@ -1304,6 +1493,7 @@ for (const feature of floorFeatures) {
   // 🗿 LANDMARK GLB OBJECTS
   for (const feature of floorFeatures) {
     const p = feature.properties || {};
+    if (isEscalatorFeature(feature)) continue;
     if (!p.objectFile) continue;
     if (p.animalRef?.model_3d) continue;
     const modelUrl = getObjectFileUrl(p.objectFile);
