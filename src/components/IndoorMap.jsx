@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 import { useMap } from "../hooks/useMap";
 import { getGeojsonData } from "../services/api";
@@ -12,593 +11,44 @@ import { fetchNearbyNodes } from "../services/FetchGraphAPI";
 import { dijkstra, findClosestNode } from "../utils/RouteFunctions";
 import { useParams } from "react-router-dom";
 import { loadVenueData } from "../services/venueApi";
-
-const baseUrl = import.meta.env.VITE_BASE_URL || "";
-const FIXED_GLB_SIZE_PX = 80;
-const ESCALATOR_MODEL_URL =
-  import.meta.env.VITE_ESCALATOR_GLB_URL || "/assets/models/Escalator.glb";
-const ESCALATOR_MODEL_LENGTH_M = 4.5;
-const ESCALATOR_MODEL_WIDTH_M = 1.1;
-const ESCALATOR_MODEL_HEIGHT_M = 1.7;
-const ESCALATOR_MODEL_ROTATION_OFFSET_RAD = Math.PI * 1.5;
-const ESCALATOR_MODEL_UPRIGHT_ROLL_RAD = Math.PI;
-const SITTING_AREA_MODEL_URL =
-  import.meta.env.VITE_SITTING_AREA_GLB_URL || "/assets/models/SittingArea.glb";
-const SITTING_AREA_MODEL_LENGTH_M = 5;
-const SITTING_AREA_MODEL_WIDTH_M = 1.5;
-const SITTING_AREA_MODEL_HEIGHT_M = 0.9;
-const SITTING_AREA_MODEL_ROTATION_OFFSET_RAD = Math.PI * 1.5;
-const SITTING_AREA_MODEL_UPRIGHT_ROLL_RAD = Math.PI;
-// Fixed pixel size (in metres equivalent) for boundary logos
-const BOUNDARY_LOGO_SIZE_M = 20;
-
-const getPolygonCenter = (geometry) => {
-  const ring =
-    geometry?.type === "Polygon"
-      ? geometry.coordinates?.[0]
-      : geometry?.type === "MultiPolygon"
-      ? geometry.coordinates?.[0]?.[0]
-      : null;
-
-  if (!ring?.length) return null;
-
-  let sumLng = 0;
-  let sumLat = 0;
-  let count = 0;
-  for (const point of ring) {
-    if (!Array.isArray(point) || point.length < 2) continue;
-    sumLng += point[0];
-    sumLat += point[1];
-    count += 1;
-  }
-
-  if (!count) return null;
-  return [sumLng / count, sumLat / count];
-};
-
-const getPolygonMinDimensionMeters = (geometry) => {
-  const ring =
-    geometry?.type === "Polygon"
-      ? geometry.coordinates?.[0]
-      : geometry?.type === "MultiPolygon"
-      ? geometry.coordinates?.[0]?.[0]
-      : null;
-
-  if (!ring?.length) return 0;
-
-  let minLng = Infinity;
-  let minLat = Infinity;
-  let maxLng = -Infinity;
-  let maxLat = -Infinity;
-
-  for (const point of ring) {
-    if (!Array.isArray(point) || point.length < 2) continue;
-    minLng = Math.min(minLng, point[0]);
-    maxLng = Math.max(maxLng, point[0]);
-    minLat = Math.min(minLat, point[1]);
-    maxLat = Math.max(maxLat, point[1]);
-  }
-
-  if (!isFinite(minLng) || !isFinite(minLat)) return 0;
-
-  const centerLat = (minLat + maxLat) / 2;
-  const metersPerDegLat = 111320;
-  const metersPerDegLng = 111320 * Math.cos((centerLat * Math.PI) / 180);
-  const widthM = Math.abs(maxLng - minLng) * metersPerDegLng;
-  const heightM = Math.abs(maxLat - minLat) * metersPerDegLat;
-  return Math.min(widthM, heightM);
-};
-
-const getPolygonDimensionsMeters = (geometry) => {
-  const ring =
-    geometry?.type === "Polygon"
-      ? geometry.coordinates?.[0]
-      : geometry?.type === "MultiPolygon"
-      ? geometry.coordinates?.[0]?.[0]
-      : null;
-
-  if (!ring?.length) return { widthM: 0, heightM: 0 };
-
-  let minLng = Infinity;
-  let minLat = Infinity;
-  let maxLng = -Infinity;
-  let maxLat = -Infinity;
-
-  for (const point of ring) {
-    if (!Array.isArray(point) || point.length < 2) continue;
-    minLng = Math.min(minLng, point[0]);
-    maxLng = Math.max(maxLng, point[0]);
-    minLat = Math.min(minLat, point[1]);
-    maxLat = Math.max(maxLat, point[1]);
-  }
-
-  if (!isFinite(minLng) || !isFinite(minLat)) return { widthM: 0, heightM: 0 };
-
-  const centerLat = (minLat + maxLat) / 2;
-  const metersPerDegLat = 111320;
-  const metersPerDegLng = 111320 * Math.cos((centerLat * Math.PI) / 180);
-  const widthM = Math.abs(maxLng - minLng) * metersPerDegLng;
-  const heightM = Math.abs(maxLat - minLat) * metersPerDegLat;
-  return { widthM, heightM };
-};
-
-const getPolygonRotationRad = (geometry) => {
-  const ring =
-    geometry?.type === "Polygon"
-      ? geometry.coordinates?.[0]
-      : geometry?.type === "MultiPolygon"
-      ? geometry.coordinates?.[0]?.[0]
-      : null;
-
-  if (!Array.isArray(ring) || ring.length < 2) return 0;
-
-  let longest = 0;
-  let angleRad = 0;
-  for (let i = 0; i < ring.length - 1; i += 1) {
-    const a = ring[i];
-    const b = ring[i + 1];
-    if (!Array.isArray(a) || !Array.isArray(b)) continue;
-    const dx = b[0] - a[0];
-    const dy = b[1] - a[1];
-    const len = dx * dx + dy * dy;
-    if (len > longest) {
-      longest = len;
-      angleRad = Math.atan2(dy, dx);
-    }
-  }
-
-  return -angleRad;
-};
-
-const isEscalatorFeature = (feature) => {
-  const p = feature?.properties || {};
-  const type = String(p.type || p.polygonType || "").toLowerCase();
-  return type.includes("escalator");
-};
-
-const isSittingAreaFeature = (feature) => {
-  const p = feature?.properties || {};
-  const type = String(p.type || p.polygonType || p.subType || "").toLowerCase();
-  const name = String(p.name || "").toLowerCase();
-  return (
-    type.includes("sitting") ||
-    type.includes("sit") ||
-    type.includes("seating") ||
-    type.includes("seat") ||
-    type.includes("bench") ||
-    type.includes("waiting") ||
-    type.includes("sitting area") ||
-    name.includes("sitting area") ||
-    name.includes("seating") ||
-    name.includes("seat") ||
-    name.includes("bench") ||
-    name.includes("waiting")
-  );
-};
-
-const isPolygonFeature = (feature) => {
-  const type = feature?.geometry?.type;
-  return type === "Polygon" || type === "MultiPolygon";
-};
-
-const isEscalatorPolygonFeature = (feature) => {
-  return isEscalatorFeature(feature) && isPolygonFeature(feature);
-};
-
-const isSittingAreaPolygonFeature = (feature) => {
-  return isSittingAreaFeature(feature) && isPolygonFeature(feature);
-};
-
-const getEscalatorModelUrl = (feature) => {
-  return getObjectFileUrl(feature?.properties?.objectFile) || ESCALATOR_MODEL_URL;
-};
-
-const getSittingAreaModelUrl = (feature) => {
-  return getObjectFileUrl(feature?.properties?.objectFile) || SITTING_AREA_MODEL_URL;
-};
-
-// const getFeatureTopHeight = (props = {}) => {
-//   const baseHeight = Number(props.baseHeight ?? 0) || 0;
-//   const type = String(props.type || "").toLowerCase();
-//   const parsedHeight = Number(props.height);
-//   const hasValidHeight = Number.isFinite(parsedHeight) && parsedHeight > 0;
-
-//   if (type === "wall") return baseHeight + (hasValidHeight ? parsedHeight : 4);
-//   if (type === "booth") return baseHeight + 2;
-//   if (type === "green area" || type === "green area | pots") return baseHeight + 0.2;
-//   // For all other types: only add height if explicitly set, otherwise 0
-//   return baseHeight + (hasValidHeight ? parsedHeight : 0);
-// };
-const getFeatureTopHeight = (props = {}) => {
-  const baseHeight = Number(props.baseHeight ?? 0) || 0;
-  const type = String(props.type || "").toLowerCase();
-  const parsedHeight = Number(props.height);
-  const hasValidHeight = Number.isFinite(parsedHeight) && parsedHeight > 0;
-
-  if (type === "wall") {
-    return baseHeight + (hasValidHeight ? parsedHeight : 4);
-  }
-
-  if (type === "booth") {
-    return baseHeight + 2;
-  }
-
-  if (
-    type === "cafeteria" ||
-    type.includes("food") ||
-    type === "lift"
-  ) {
-    return baseHeight + (hasValidHeight ? parsedHeight : 2);
-  }
-
-  if (
-    type === "green area" ||
-    type === "green area | pots"
-  ) {
-    return baseHeight + 0.2;
-  }
-
-  // For all other types
-  return baseHeight + (hasValidHeight ? parsedHeight : 0);
-};
-
-const getFeatureBaseHeight = (props = {}) => {
-  return Number(props.baseHeight ?? 0) || 0;
-};
-
-const getFeatureAnchorCoordinates = (feature) => {
-  const geometryType = feature?.geometry?.type;
-  if (geometryType === "Point") return feature.geometry?.coordinates || null;
-  if (geometryType === "Polygon" || geometryType === "MultiPolygon") {
-    return getPoleOfInaccessibility(feature.geometry);
-  }
-  return null;
-};
-
-const getPoleOfInaccessibility = (geometry) => {
-  const ring =
-    geometry?.type === "Polygon"
-      ? geometry.coordinates?.[0]
-      : geometry?.type === "MultiPolygon"
-      ? geometry.coordinates?.[0]?.[0]
-      : null;
-
-  if (!ring?.length) return null;
-
-  let minLng = Infinity, minLat = Infinity;
-  let maxLng = -Infinity, maxLat = -Infinity;
-  for (const [lng, lat] of ring) {
-    minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng);
-    minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
-  }
-
-  const width = maxLng - minLng;
-  const height = maxLat - minLat;
-  const cellSize = Math.min(width, height) / 16;
-  if (cellSize === 0) return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
-
-  const pointInPolygon = (x, y, poly) => {
-    let inside = false;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const [xi, yi] = poly[i];
-      const [xj, yj] = poly[j];
-      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
-        inside = !inside;
-      }
-    }
-    return inside;
-  };
-
-  const pointToSegmentDist = (px, py, ax, ay, bx, by) => {
-    const dx = bx - ax, dy = by - ay;
-    const lenSq = dx * dx + dy * dy;
-    let t = lenSq > 0 ? ((px - ax) * dx + (py - ay) * dy) / lenSq : 0;
-    t = Math.max(0, Math.min(1, t));
-    const nearX = ax + t * dx, nearY = ay + t * dy;
-    return Math.sqrt((px - nearX) ** 2 + (py - nearY) ** 2);
-  };
-
-  const distToPolygon = (x, y, poly) => {
-    let minDist = Infinity;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const d = pointToSegmentDist(x, y, poly[j][0], poly[j][1], poly[i][0], poly[i][1]);
-      if (d < minDist) minDist = d;
-    }
-    return pointInPolygon(x, y, poly) ? minDist : -minDist;
-  };
-
-  let bestDist = -Infinity;
-  let bestPoint = [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
-
-  for (let x = minLng + cellSize / 2; x < maxLng; x += cellSize) {
-    for (let y = minLat + cellSize / 2; y < maxLat; y += cellSize) {
-      const d = distToPolygon(x, y, ring);
-      if (d > bestDist) {
-        bestDist = d;
-        bestPoint = [x, y];
-      }
-    }
-  }
-
-  return bestPoint;
-};
-
-const getObjectFileUrl = (objectFile) => {
-  if (!objectFile) return null;
-  if (/^https?:\/\//i.test(objectFile)) return objectFile;
-  const cleanBase = String(baseUrl).replace(/\/+$/, "");
-  const cleanPath = String(objectFile).replace(/^\/+/, "");
-  return `${cleanBase}/uploads/${cleanPath}`;
-};
-
-const getImageFileUrl = (imageFile) => {
-  if (!imageFile) return null;
-  if (/^https?:\/\//i.test(imageFile)) return imageFile;
-  const cleanBase = String(baseUrl).replace(/\/+$/, "");
-  const cleanPath = String(imageFile).replace(/^\/+/, "");
-  return `${cleanBase}/uploads/${cleanPath}`;
-};
-
-// ─── Shared helper to build + register a custom 3D plane layer ───────────────
-const buildLogoPlaneLayer = (map, layerId, planes) => {
-  map.addLayer({
-    id: layerId,
-    type: "custom",
-    renderingMode: "3d",
-    onAdd: function (_map, gl) {
-      this.camera = new THREE.Camera();
-      this.scene = new THREE.Scene();
-      this.renderer = new THREE.WebGLRenderer({
-        canvas: _map.getCanvas(),
-        context: gl,
-        antialias: true,
-      });
-      this.renderer.autoClear = false;
-      this.mesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(1, 1),
-        new THREE.MeshBasicMaterial({
-          side: THREE.DoubleSide,
-          transparent: true,
-          depthTest: false,
-          depthWrite: false,
-        })
-      );
-      this.scene.add(this.mesh);
-
-      this.planes = planes.map(({ center, texture, scaleX, scaleY, z, rot }) => {
-        const mercator = maplibregl.MercatorCoordinate.fromLngLat(
-          { lng: center[0], lat: center[1] },
-          z
-        );
-        const meterScale = mercator.meterInMercatorCoordinateUnits();
-        return {
-          texture,
-          tx: mercator.x,
-          ty: mercator.y,
-          tz: mercator.z,
-          sx: meterScale * scaleX,
-          sy: meterScale * scaleY,
-          rot: rot || 0,
-        };
-      });
-    },
-    render: function (_gl, matrix) {
-      const base = new THREE.Matrix4().fromArray(matrix);
-      this.renderer.state.reset();
-      this.renderer.clearDepth();
-
-      this.planes.forEach((plane) => {
-        this.mesh.material.map = plane.texture;
-        this.mesh.material.needsUpdate = true;
-
-        const rotationX = new THREE.Matrix4().makeRotationAxis(
-          new THREE.Vector3(1, 0, 0),
-          Math.PI
-        );
-        // const rotationZ = new THREE.Matrix4().makeRotationAxis(
-        //   new THREE.Vector3(0, 0, 1),
-        //   plane.rot || 0
-        // );
-        // current map bearing
-        const mapBearingRad =
-          (-map.getBearing() * Math.PI) / 180;
-
-        // make image face camera
-        // const dynamicRotation =
-        //   mapBearingRad + (plane.rot || 0);
-
-        // const rotationZ =
-        //   new THREE.Matrix4().makeRotationAxis(
-        //     new THREE.Vector3(0, 0, 1),
-        //     dynamicRotation
-        //   );
-        const normalizedBearing =
-  ((map.getBearing() % 360) + 360) % 360;
-
-          const planeDeg =
-            (((plane.rot || 0) * 180) / Math.PI + 360) % 360;
-
-          // difference between camera + polygon direction
-          let delta =
-            normalizedBearing - planeDeg;
-
-          delta = ((delta + 540) % 360) - 180;
-
-          // ONLY flip when backside visible
-          const shouldFlip =
-            Math.abs(delta) > 90;
-
-          const finalRotation =
-            (plane.rot || 0) +
-            (shouldFlip ? Math.PI : 0);
-
-          const rotationZ =
-            new THREE.Matrix4().makeRotationAxis(
-              new THREE.Vector3(0, 0, 1),
-              finalRotation
-            );
-        const modelMatrix = new THREE.Matrix4()
-          .makeTranslation(plane.tx, plane.ty, plane.tz)
-          .multiply(rotationZ)
-          .multiply(rotationX)
-          .scale(new THREE.Vector3(plane.sx, plane.sy, 1));
-
-        this.camera.projectionMatrix = base.clone().multiply(modelMatrix);
-        this.renderer.render(this.scene, this.camera);
-      });
-
-      map.triggerRepaint();
-    },
-    onRemove: function () {
-      this.mesh?.geometry?.dispose?.();
-      this.mesh?.material?.dispose?.();
-      this.renderer?.dispose?.();
-    },
-  });
-};
-
-const fitGltfToFootprint = (object, footprint) => {
-  const box = new THREE.Box3().setFromObject(object);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-
-  const scaleX = footprint.widthM / Math.max(size.x, 0.001);
-  const scaleY = footprint.heightM / Math.max(size.y, 0.001);
-  const scaleZ = footprint.lengthM / Math.max(size.z, 0.001);
-  object.scale.set(scaleX, scaleY, scaleZ);
-  object.position.set(
-    -center.x * scaleX,
-    -box.min.y * scaleY,
-    -center.z * scaleZ
-  );
-};
-
-const buildGltfModelLayer = (map, layerId, modelUrl, placements) => {
-  map.addLayer({
-    id: layerId,
-    type: "custom",
-    renderingMode: "3d",
-    onAdd: function (_map, gl) {
-      this.camera = new THREE.Camera();
-      this.scene = new THREE.Scene();
-      this.renderer = new THREE.WebGLRenderer({
-        canvas: _map.getCanvas(),
-        context: gl,
-        antialias: true,
-      });
-      this.renderer.autoClear = false;
-
-      const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
-      const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
-      directionalLight.position.set(0, -70, 100).normalize();
-      this.scene.add(ambientLight, directionalLight);
-
-      this.placements = placements.map((placement) => {
-        const mercator = maplibregl.MercatorCoordinate.fromLngLat(
-          { lng: placement.center[0], lat: placement.center[1] },
-          placement.z
-        );
-        const translate = new THREE.Matrix4().makeTranslation(
-          mercator.x,
-          mercator.y,
-          mercator.z
-        );
-        const rotateZ = new THREE.Matrix4().makeRotationAxis(
-          new THREE.Vector3(0, 0, 1),
-          (placement.rot || 0) + (placement.rotationOffsetRad || 0)
-        );
-        const rotateX = new THREE.Matrix4().makeRotationAxis(
-          new THREE.Vector3(1, 0, 0),
-          Math.PI / 2
-        );
-        const uprightRoll = new THREE.Matrix4().makeRotationAxis(
-          new THREE.Vector3(0, 0, 1),
-          placement.uprightRollRad || 0
-        );
-        const scale = mercator.meterInMercatorCoordinateUnits();
-        const scaleMatrix = new THREE.Matrix4().makeScale(scale, -scale, scale);
-
-        return {
-          matrix: translate
-            .multiply(rotateZ)
-            .multiply(rotateX)
-            .multiply(uprightRoll)
-            .multiply(scaleMatrix),
-          footprint: placement.footprint,
-        };
-      });
-
-      new GLTFLoader().load(
-        modelUrl,
-        (gltf) => {
-          this.placements.forEach((placement) => {
-            const model = gltf.scene.clone(true);
-            fitGltfToFootprint(model, placement.footprint);
-            model.visible = false;
-            placement.model = model;
-            this.scene.add(model);
-          });
-          map.triggerRepaint();
-        },
-        undefined,
-        (error) => {
-          console.error(`Failed to load GLB model: ${modelUrl}`, error);
-        }
-      );
-    },
-    render: function (_gl, matrix) {
-      const base = new THREE.Matrix4().fromArray(matrix);
-
-      this.renderer.state.reset();
-
-      this.placements.forEach((placement) => {
-        if (!placement.model) return;
-        placement.model.visible = true;
-        this.camera.projectionMatrix = base.clone().multiply(placement.matrix);
-        this.renderer.render(this.scene, this.camera);
-        placement.model.visible = false;
-      });
-      map.triggerRepaint();
-    },
-    onRemove: function () {
-      this.scene?.traverse?.((object) => {
-        object.geometry?.dispose?.();
-        if (Array.isArray(object.material)) {
-          object.material.forEach((material) => material?.dispose?.());
-        } else {
-          object.material?.dispose?.();
-        }
-      });
-      this.renderer?.dispose?.();
-    },
-  });
-};
-
-// ─── Shared scale helper (aspect-correct fit inside polygon footprint) ────────
-const computePlaneScale = (widthM, heightM, aspect, coverFraction = 0.65) => {
-  const maxWidth  = Math.max(0.3, widthM  * coverFraction);
-  const maxHeight = Math.max(0.3, heightM * coverFraction);
-  let scaleX, scaleY;
-  if (maxWidth / aspect <= maxHeight) {
-    scaleX = maxWidth;
-    scaleY = maxWidth / aspect;
-  } else {
-    scaleY = maxHeight;
-    scaleX = maxHeight * aspect;
-  }
-  return {
-    scaleX: Math.min(scaleX, maxWidth),
-    scaleY: Math.min(scaleY, maxHeight),
-  };
-};
-
-// ─── Fixed-size plane scale (for boundary logos — constant physical metres) ──
-const computeFixedPlaneScale = (aspect, sizeM = BOUNDARY_LOGO_SIZE_M) => {
-  if (aspect >= 1) {
-    return { scaleX: sizeM, scaleY: sizeM / aspect };
-  }
-  return { scaleX: sizeM * aspect, scaleY: sizeM };
-};
+import {
+  BOUNDARY_LOGO_SIZE_M,
+  ESCALATOR_MODEL_HEIGHT_M,
+  ESCALATOR_MODEL_LENGTH_M,
+  ESCALATOR_MODEL_ROTATION_OFFSET_RAD,
+  ESCALATOR_MODEL_UPRIGHT_ROLL_RAD,
+  ESCALATOR_MODEL_WIDTH_M,
+  FIXED_GLB_SIZE_PX,
+  SITTING_AREA_MODEL_HEIGHT_M,
+  SITTING_AREA_MODEL_LENGTH_M,
+  SITTING_AREA_MODEL_ROTATION_OFFSET_RAD,
+  SITTING_AREA_MODEL_UPRIGHT_ROLL_RAD,
+  SITTING_AREA_MODEL_WIDTH_M,
+} from "./indoorMap/constants";
+import { getImageFileUrl, getObjectFileUrl } from "./indoorMap/assetUrls";
+import {
+  getFeatureAnchorCoordinates,
+  getFeatureBaseHeight,
+  getFeatureTopHeight,
+  getPoleOfInaccessibility,
+  getPolygonCenter,
+  getPolygonDimensionsMeters,
+  getPolygonRotationRad,
+} from "./indoorMap/geometry";
+import {
+  getEscalatorModelUrl,
+  getSittingAreaModelUrl,
+  isEscalatorFeature,
+  isEscalatorPolygonFeature,
+  isSittingAreaFeature,
+  isSittingAreaPolygonFeature,
+} from "./indoorMap/featureTypes";
+import {
+  buildGltfModelLayer,
+  buildLogoPlaneLayer,
+  computeFixedPlaneScale,
+  computePlaneScale,
+} from "./indoorMap/customLayers";
 
 export default function IndoorMap() {
   const { mapRef, containerRef, ready } = useMap();
@@ -612,7 +62,8 @@ export default function IndoorMap() {
   const customLayerIdsRef = useRef([]);
   const routePathRef = useRef([]);
   const graphRef = useRef(null);
-  
+  const sourceFloorRef = useRef(null);
+const destFloorRef = useRef(null);
   const [sourceQuery, setSourceQuery] = useState("");
   const [destQuery, setDestQuery] = useState("");
   const [sourceResults, setSourceResults] = useState([]);
@@ -1010,7 +461,7 @@ const createTextTexture = async (text) => {
           ["case",
             ["all", ["has", "height"], ["!=", ["get", "height"], "undefined"], [">", ["to-number", ["get", "height"]], 0]],
             ["to-number", ["get", "height"]],
-            4
+          3
           ]
         ],
         ["==", ["get", "type"], "Booth"],
@@ -1265,6 +716,16 @@ const createTextTexture = async (text) => {
     keys.forEach((k) => centroidFeaturesByLandmark.set(String(k), f));
   }
 
+    const polygonLookup = new Map();
+  for (const feature of floorFeatures) {
+    const geometryType = feature.geometry?.type;
+    if (geometryType !== "Polygon" && geometryType !== "MultiPolygon") continue;
+    const keys = [
+      feature.id, feature._id,
+      feature.properties?.id, feature.properties?._id,
+    ].filter(Boolean);
+    keys.forEach((key) => polygonLookup.set(String(key), feature));
+  }
     // ── DEFAULT SERVICE ICONS + LABELS ───────────────────────────────────
   const defaultPoiFeatures = [];
 
@@ -1275,9 +736,12 @@ const createTextTexture = async (text) => {
     maleWashroom: "/assets/icons/maleWashroom.png",
     femaleWashroom: "/assets/icons/femaleWashroom.png",
     unisexWashroom: "/assets/icons/unisex_washroom.png",
+    accessibleWashroom: "/assets/icons/accessibleWashroom.png",
     stairs: "/assets/icons/stairs.png",
     water: "/assets/icons/water.png",
     reception: "/assets/icons/reception.png",
+    mainEntry: "/assets/icons/entry.png",
+    exitOnly: "/assets/icons/exit.png",
   };
 
   const ensureDefaultIcon = async (iconId, imagePath) => {
@@ -1303,81 +767,148 @@ const createTextTexture = async (text) => {
     ensureDefaultIcon("stairs-default", defaultIcons.stairs),
     ensureDefaultIcon("water-default", defaultIcons.water),
     ensureDefaultIcon("reception-default", defaultIcons.reception),
+    ensureDefaultIcon("main-entry-default", defaultIcons.mainEntry),
+    ensureDefaultIcon("exit-only-default", defaultIcons.exitOnly),
+    ensureDefaultIcon("accessible-washroom-default", defaultIcons.accessibleWashroom),
   ]);
-
 for (const feature of floorFeatures) {
   const p = feature.properties || {};
 
+  const geometryType =
+    feature.geometry?.type || "";
+
   const type = String(
     p.type ||
-    p.polygonType ||
-    p.subType ||
-    ""
+      p.polygonType ||
+      p.subType ||
+      ""
   ).toLowerCase();
 
   const polygonType = String(
     p.polygonType || ""
   ).toLowerCase();
 
-  const name = String(p.name || "").toLowerCase();
-
-  const hasCustomImage =
-    p.imageFile ||
-    p.logo ||
-    p.logoUrl;
+  const name = String(
+    p.name || ""
+  ).trim();
 
   let icon = null;
   let label = "";
+  let center = null;
 
-  // ── CAFETERIA ─────────────────────────────────────────────
- if (
+  // ─────────────────────────────────────────────
+  // COUNTER + SECURITY CHECK
+  // USE POINT FEATURE NAME + POLYGON CENTROID
+  // ─────────────────────────────────────────────
+
+if (
+  geometryType === "Point" &&
+  (
+    type.includes("counter") ||
+    // polygonType.includes("counter") ||
+    type.includes("security check") ||
+    polygonType.includes("security check")
+  )
+) {
+    icon = "reception-default";
+
+const isSecurityCheck =
+  type.includes("security check") ||
+  polygonType.includes("security check");
+
+label =
+  name ||
+  (isSecurityCheck
+    ? "Security Check"
+    : "Counter");
+
+    const polygonIds = [
+      ...(p.associatedPolygons || []),
+      ...(feature.associatedPolygons || []),
+    ].map(String);
+
+    let linkedPolygon = null;
+
+    for (const polyId of polygonIds) {
+      const poly =
+        polygonLookup.get(polyId);
+
+      if (poly) {
+        linkedPolygon = poly;
+        break;
+      }
+    }
+
+    // render on polygon centroid
+    if (linkedPolygon) {
+      center =
+        getPoleOfInaccessibility(
+          linkedPolygon.geometry
+        ) ||
+        getPolygonCenter(
+          linkedPolygon.geometry
+        );
+    }
+
+    // fallback
+    if (!center) {
+      center =
+        p.centroid ||
+        feature.geometry.coordinates;
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // OTHER TYPES
+  // ─────────────────────────────────────────────
+
+  else if (
     type.includes("lift") ||
     polygonType.includes("lift")
   ) {
     icon = "lift-default";
-
-    // NO LABEL
     label = "";
   }
+
   else if (
     type.includes("female washroom") ||
     polygonType.includes("female washroom") ||
-    (type.includes("washroom") && name.includes("female"))
+    (
+      type.includes("washroom") &&
+      name.toLowerCase().includes("female")
+    )
   ) {
     icon = "female-washroom-default";
-
-    // NO LABEL
     label = "";
   }
-  // ── MALE WASHROOM ────────────────────────────────────────
+
   else if (
     type.includes("male washroom") ||
     polygonType.includes("male washroom") ||
-    (type.includes("washroom") && name.includes("male"))
+    (
+      type.includes("washroom") &&
+      name.toLowerCase().includes("male")
+    )
   ) {
     icon = "male-washroom-default";
-
-    // NO LABEL
     label = "";
   }
 
-  // ── FEMALE WASHROOM ──────────────────────────────────────
-
-
-  // ── UNISEX / ACCESSIBLE WASHROOM ────────────────────────
   else if (
     type.includes("unisex washroom") ||
-    type.includes("accessible washroom") ||
-    polygonType.includes("unisex washroom") ||
-    polygonType.includes("accessible washroom")
+    polygonType.includes("unisex washroom") 
   ) {
     icon = "unisex-washroom-default";
-
-    // NO LABEL
+    label = "";
+  }
+    else if (
+    type.includes("accessible washroom") ||
+    polygonType.includes("accessible washroom")
+  ) {
+    icon = "accessible-washroom-default";
     label = "";
   }
 
-  // ── DRINKING WATER ───────────────────────────────────────
   else if (
     type.includes("drinking water") ||
     polygonType.includes("drinking water")
@@ -1385,8 +916,75 @@ for (const feature of floorFeatures) {
     icon = "water-default";
     label = "Water";
   }
+  else if (
+  type.includes("stairs") &&
+  feature.geometry?.type !== "Polygon" &&
+  feature.geometry?.type !== "MultiPolygon"
+)
+{
+  icon = "stairs-default";
 
-  // ── RECEPTION ────────────────────────────────────────────
+  // optional label
+  label = "";
+
+  // IMPORTANT:
+  // use actual point coordinate only
+  if (
+    feature.geometry?.type === "Point"
+  ) {
+    center =
+      feature.geometry.coordinates;
+  }
+
+  // fallback
+  if (!center) {
+    center =
+      p.centroid ||
+      feature.geometry?.coordinates;
+  }
+}
+// ─────────────────────────────────────────────
+// MAIN ENTRY
+// ONLY POINT FEATURES
+// ─────────────────────────────────────────────
+
+else if (
+  (
+    type.includes("main entry") ||
+    polygonType.includes("main entry")
+  ) &&
+  feature.geometry?.type === "Point"
+)
+{
+  icon = "main-entry-default";
+
+  label = name || "Main Entry";
+
+  center =
+    feature.geometry.coordinates;
+}
+
+// ─────────────────────────────────────────────
+// EXIT ONLY
+// ONLY POINT FEATURES
+// ─────────────────────────────────────────────
+
+else if (
+  (
+    type.includes("exit only") ||
+    polygonType.includes("exit only")
+  ) &&
+  feature.geometry?.type === "Point"
+)
+{
+  icon = "exit-only-default";
+
+  label = name || "Exit Only";
+
+  center =
+    feature.geometry.coordinates;
+}
+
   else if (
     type.includes("reception") ||
     polygonType.includes("reception")
@@ -1394,20 +992,20 @@ for (const feature of floorFeatures) {
     icon = "reception-default";
     label = "Reception";
   }
-    else if (
-    type.includes("counter") ||
-    polygonType.includes("counter")
-  ) {
-    icon = "reception-default";
-    label = name || "Counter";
-  }
 
   if (!icon) continue;
 
-  const center =
-    p.centroid ||
-    getPoleOfInaccessibility(feature.geometry) ||
-    getPolygonCenter(feature.geometry);
+  // default center for non-counter items
+  if (!center) {
+    center =
+      p.centroid ||
+      getPoleOfInaccessibility(
+        feature.geometry
+      ) ||
+      getPolygonCenter(
+        feature.geometry
+      );
+  }
 
   if (!center) continue;
 
@@ -1443,14 +1041,22 @@ for (const feature of floorFeatures) {
         "icon-anchor": "center",
 
         "text-field": ["get", "name"],
-        "text-size": 12,
+        // "text-size": 12,
+        "text-size": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          17, 10,
+          19, 12,
+          21, 14
+        ],
         "text-anchor": "top",
         // "text-offset": [0, 1],
 
-        "text-allow-overlap": true,
-        "icon-allow-overlap": true,
-        "text-ignore-placement": true,
-        "icon-ignore-placement": true,
+        "text-allow-overlap": false,
+        "icon-allow-overlap": false,
+        "text-ignore-placement": false,
+        "icon-ignore-placement": false,
       },
       paint: {
         "text-color": "#111",
@@ -1639,16 +1245,7 @@ for (const feature of floorFeatures) {
   textureLoader.setCrossOrigin("anonymous");
   const textureCache = new Map();
 
-  const polygonLookup = new Map();
-  for (const feature of floorFeatures) {
-    const geometryType = feature.geometry?.type;
-    if (geometryType !== "Polygon" && geometryType !== "MultiPolygon") continue;
-    const keys = [
-      feature.id, feature._id,
-      feature.properties?.id, feature.properties?._id,
-    ].filter(Boolean);
-    keys.forEach((key) => polygonLookup.set(String(key), feature));
-  }
+
 
   [...boundaries, ...topSections, ...subSections].forEach((feature) => {
     const keys = [
@@ -1821,50 +1418,7 @@ for (const feature of floorFeatures) {
     addTrackedLogoLayer(`exhibitor-logo-3d-${floor}`, exhibitorLogoPlanes);
   }
 
-  // ── GENERAL POINT IMAGE PLANES ────────────────────────────────────────
-  // const pointImagePlanes = [];
 
-  // for (const pointFeature of imagedPoints) {
-  //   const p = pointFeature.properties || {};
-  //   const imageUrl = getImageFileUrl(p.imageFile);
-  //   if (!imageUrl) continue;
-
-  //   const polygonIds = [
-  //     ...(p.associatedPolygons || []),
-  //     ...(pointFeature.associatedPolygons || []),
-  //   ].map(String);
-
-  //   if (polygonIds.length > 0) {
-  //     const planes = await buildPlanesForPolygons(imageUrl, polygonIds, 0.65);
-  //     pointImagePlanes.push(...planes);
-  //     continue;
-  //   }
-
-  //   const fallbackCoords = p.centroid || pointFeature.geometry?.coordinates;
-  //   if (!fallbackCoords) continue;
-
-  //   const texture = await loadTexture(imageUrl);
-  //   if (!texture) continue;
-
-  //   const aspect =
-  //     texture?.image?.width && texture?.image?.height
-  //       ? texture.image.width / texture.image.height
-  //       : 1;
-
-  //   const defaultSize = 1.5;
-  //   pointImagePlanes.push({
-  //     center: fallbackCoords,
-  //     texture,
-  //     scaleX: defaultSize * aspect,
-  //     scaleY: defaultSize,
-  //     z: 3.06,
-  //     rot: 0,
-  //   });
-  // }
-
-  // if (pointImagePlanes.length) {
-  //   addTrackedLogoLayer(`point-image-3d-${floor}`, pointImagePlanes);
-  // }
   const pointImagePlanes = [];
 
 for (const pointFeature of imagedPoints) {
@@ -2003,50 +1557,6 @@ if (pointImagePlanes.length) {
 
 
 
-  // const handleRouting = async () => {
-  //     if (!sourceRef.current || !destRef.current) return;
-
-  //   const map = mapRef.current;
-  //   const src = sourceRef.current.getLngLat();
-  //   const dest = destRef.current.getLngLat();
-  //   console.log("SRC:", src);
-  //   console.log("DEST:", dest);
-
-  //   const graph = await fetchNearbyNodes(src.lat, src.lng);
-  //   console.log("GRAPH:", graph);
-  //   if (!graph) return;
-
-  //   const start = findClosestNode(graph, src);
-  //   const end = findClosestNode(graph, dest);
-  //   console.log("START:", start);
-  //   console.log("END:", end);
-
-  //   const path = dijkstra(graph, start.key, end.key);
-  //   console.log("PATH:", path);
-
-  //   const coords = path.map((k) => {
-  //     const [lng, lat] = k.split(",");
-  //     return [parseFloat(lng), parseFloat(lat)];
-  //   });
-
-  //   const routeGeo = {
-  //     type: "Feature",
-  //     geometry: { type: "LineString", coordinates: coords },
-  //   };
-
-  //   if (map.getSource("route")) {
-  //     map.getSource("route").setData(routeGeo);
-  //   } else {
-  //     map.addSource("route", { type: "geojson", data: routeGeo });
-  //     map.addLayer({
-  //       id: "route-line",
-  //       type: "line",
-  //       source: "route",
-  //       paint: { "line-color": "#007AFF", "line-width": 5 },
-  //     });
-  //   }
-  // };
-
   const renderRouteForFloor = (pathCoords, targetFloor) => {
   const map = mapRef.current;
 
@@ -2125,14 +1635,17 @@ if (pointImagePlanes.length) {
   const srcPoint = {
     lng: src.lng,
     lat: src.lat,
-    floor: src.floor, // current selected floor
+    floor: sourceFloorRef.current ?? floor
+    // floor: src.floor, // current selected floor
   };
 
   const destPoint = {
     lng: dest.lng,
     lat: dest.lat,
-    floor: dest.floor, // change if destination has separate floor
+    floor: destFloorRef.current ?? floor, // change if destination has separate floor
   };
+  console.log("src:", srcPoint);
+  console.log("dest:", destPoint);
 
   // optional preferences
   const selectedNodes = [];
@@ -2213,23 +1726,120 @@ useEffect(() => {
     floor
   );
 }, [floor]);
-  const searchPlaces = (query) => {
-    if (!geo || !query) return [];
-    const q = query.toLowerCase();
-    const seen = new Set();
-    const results = [];
-    for (const f of geo.features) {
-      const name = f.properties?.name;
-      if (!name) continue;
-      const lower = name.toLowerCase();
-      if (!lower.includes(q)) continue;
-      if (seen.has(lower)) continue;
-      seen.add(lower);
-      results.push(f);
-      if (results.length >= 5) break;
+  
+const searchPlaces = (query) => {
+  if (!geo || !query) return [];
+
+  const q = query
+    .toLowerCase()
+    .trim();
+
+  const seen = new Set();
+
+  const results = [];
+
+  for (const f of geo.features) {
+    const p = f.properties || {};
+
+    if (!p) continue;
+
+    const name = String(
+      p.name || ""
+    ).trim();
+
+    const renderName = String(
+      p.renderName || ""
+    ).trim();
+
+    const keywords = Array.isArray(
+      p.keywords
+    )
+      ? p.keywords
+      : [];
+
+    // ─────────────────────────────
+    // MATCHING
+    // ─────────────────────────────
+
+    const matchedKeyword =
+      keywords.find((k) =>
+        String(k)
+          .toLowerCase()
+          .includes(q)
+      );
+
+    const matched =
+      name
+        .toLowerCase()
+        .includes(q) ||
+      renderName
+        .toLowerCase()
+        .includes(q) ||
+      matchedKeyword;
+
+    if (!matched) continue;
+
+    // ─────────────────────────────
+    // UNIQUE
+    // ─────────────────────────────
+
+    const uniqueKey =
+      p.landmarkId ||
+      f.id ||
+      name;
+
+    if (seen.has(uniqueKey))
+      continue;
+
+    seen.add(uniqueKey);
+
+    // ─────────────────────────────
+    // FLOOR LABEL
+    // ─────────────────────────────
+
+    const floorNo =
+      p.floor ?? 0;
+
+    let floorLabel = "";
+
+    if (floorNo < 0) {
+      floorLabel = `B${Math.abs(
+        floorNo
+      )}`;
+    } else if (floorNo === 0) {
+      floorLabel = "G";
+    } else {
+      floorLabel = `F${floorNo}`;
     }
-    return results;
-  };
+
+    // ─────────────────────────────
+    // PUSH RESULT
+    // ─────────────────────────────
+
+    results.push({
+      feature: f,
+
+      // searched keyword
+      matchedText:
+        matchedKeyword ||
+        renderName ||
+        name,
+
+      // actual place/platform
+      actualName:
+        renderName ||
+        name,
+
+      // formatted floor
+      floorLabel,
+    });
+
+    if (results.length >= 10)
+      break;
+  }
+
+  return results;
+};
 
   const handleSourceSearch = (val) => {
     setSourceQuery(val);
@@ -2240,7 +1850,6 @@ useEffect(() => {
     setDestQuery(val);
     setDestResults(searchPlaces(val));
   };
-
   const selectSource = (feature) => {
   const map = mapRef.current;
   if (!map) return;
@@ -2249,32 +1858,54 @@ useEffect(() => {
     feature.properties?.centroid ||
     feature.geometry.coordinates;
 
-  // create marker ONLY after selecting from search
-  if (!sourceRef.current) {
-    sourceRef.current = new maplibregl.Marker({
-      color: "green",
-    })
-      .setLngLat(coords)
-      .addTo(map);
-  } else {
-    sourceRef.current.setLngLat(coords);
+  // IMPORTANT
+  const targetFloor =
+    feature.properties?.floor ?? 0;
+
+  // store selected floor
+  sourceFloorRef.current =
+    targetFloor;
+
+  // auto switch floor
+  if (targetFloor !== floor) {
+    switchFloor(targetFloor);
   }
 
-  setSourceQuery(feature.properties?.name || "");
+  if (!sourceRef.current) {
+    sourceRef.current =
+      new maplibregl.Marker({
+        color: "green",
+      })
+        .setLngLat(coords)
+        .addTo(map);
+  } else {
+    sourceRef.current.setLngLat(
+      coords
+    );
+  }
+
+  setSourceQuery(
+    feature.properties
+      ?.renderName ||
+      feature.properties
+        ?.name ||
+      ""
+  );
+
   setSourceResults([]);
 
-  // fly to selected place
   map.flyTo({
     center: coords,
     zoom: 20,
   });
 
-  // route only if both markers exist
-  if (sourceRef.current && destRef.current) {
+  if (
+    sourceRef.current &&
+    destRef.current
+  ) {
     handleRouting();
   }
 };
-
 const selectDest = (feature) => {
   const map = mapRef.current;
   if (!map) return;
@@ -2283,28 +1914,51 @@ const selectDest = (feature) => {
     feature.properties?.centroid ||
     feature.geometry.coordinates;
 
-  // create marker ONLY after selecting from search
-  if (!destRef.current) {
-    destRef.current = new maplibregl.Marker({
-      color: "red",
-    })
-      .setLngLat(coords)
-      .addTo(map);
-  } else {
-    destRef.current.setLngLat(coords);
+  // IMPORTANT
+  const targetFloor =
+    feature.properties?.floor ?? 0;
+
+  // store selected floor
+  destFloorRef.current =
+    targetFloor;
+
+  // auto switch floor
+  if (targetFloor !== floor) {
+    switchFloor(targetFloor);
   }
 
-  setDestQuery(feature.properties?.name || "");
+  if (!destRef.current) {
+    destRef.current =
+      new maplibregl.Marker({
+        color: "red",
+      })
+        .setLngLat(coords)
+        .addTo(map);
+  } else {
+    destRef.current.setLngLat(
+      coords
+    );
+  }
+
+  setDestQuery(
+    feature.properties
+      ?.renderName ||
+      feature.properties
+        ?.name ||
+      ""
+  );
+
   setDestResults([]);
 
-  // fly to selected place
   map.flyTo({
     center: coords,
     zoom: 20,
   });
 
-  // route only if both markers exist
-  if (sourceRef.current && destRef.current) {
+  if (
+    sourceRef.current &&
+    destRef.current
+  ) {
     handleRouting();
   }
 };
@@ -2333,14 +1987,114 @@ const selectDest = (feature) => {
           style={{ width: "100%", padding: 8, marginBottom: 6, borderRadius: 6, border: "1px solid #ccc" }}
         />
         {sourceResults.length > 0 && (
-          <div style={dropdownStyle}>
-            {sourceResults.map((f, i) => (
-              <div key={i} style={itemStyle} onClick={() => selectSource(f)}>
-                {f.properties?.name || "Unnamed"}
-              </div>
-            ))}
+  <div
+    style={{
+      background: "#fff",
+      borderRadius: 16,
+      overflow: "hidden",
+      boxShadow:
+        "0 8px 30px rgba(0,0,0,0.12)",
+      border: "1px solid #eee",
+      marginTop: 4,
+      maxHeight: 320,
+      overflowY: "auto",
+    }}
+  >
+    {sourceResults.map((item, i) => (
+      <div
+        key={i}
+        onClick={() =>
+          selectSource(
+            item.feature
+          )
+        }
+        style={{
+          padding: "14px 16px",
+          cursor: "pointer",
+          borderBottom:
+            i !==
+            sourceResults.length - 1
+              ? "1px solid #f3f3f3"
+              : "none",
+
+          display: "flex",
+          justifyContent:
+            "space-between",
+          alignItems: "center",
+          gap: 12,
+          transition:
+            "background 0.2s",
+        }}
+      >
+        {/* LEFT */}
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
+          {/* MATCHED TEXT */}
+          <div
+            style={{
+              fontSize: 15,
+              fontWeight: 600,
+              color: "#111",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow:
+                "ellipsis",
+            }}
+          >
+            {item.matchedText}
           </div>
-        )}
+
+          {/* ACTUAL NAME */}
+          {item.actualName !==
+            item.matchedText && (
+            <div
+              style={{
+                fontSize: 12,
+                color: "#777",
+                marginTop: 3,
+                whiteSpace:
+                  "nowrap",
+                overflow: "hidden",
+                textOverflow:
+                  "ellipsis",
+              }}
+            >
+              {
+                item.actualName
+              }
+            </div>
+          )}
+        </div>
+
+        {/* FLOOR BADGE */}
+        <div
+          style={{
+            minWidth: 52,
+            height: 26,
+            borderRadius: 999,
+            background:
+              "#EEF4FF",
+            color: "#2563EB",
+            fontSize: 12,
+            fontWeight: 700,
+            display: "flex",
+            alignItems: "center",
+            justifyContent:
+              "center",
+            padding: "0 10px",
+            flexShrink: 0,
+          }}
+        >
+          {item.floorLabel}
+        </div>
+      </div>
+    ))}
+  </div>
+)}
 
         <input
           placeholder="Search Destination"
@@ -2349,14 +2103,108 @@ const selectDest = (feature) => {
           style={{ width: "100%", padding: 8, marginTop: 10, borderRadius: 6, border: "1px solid #ccc" }}
         />
         {destResults.length > 0 && (
-          <div style={dropdownStyle}>
-            {destResults.map((f, i) => (
-              <div key={i} style={itemStyle} onClick={() => selectDest(f)}>
-                {f.properties?.name || "Unnamed"}
-              </div>
-            ))}
+  <div
+    style={{
+      background: "#fff",
+      borderRadius: 16,
+      overflow: "hidden",
+      boxShadow:
+        "0 8px 30px rgba(0,0,0,0.12)",
+      border: "1px solid #eee",
+      marginTop: 4,
+      maxHeight: 320,
+      overflowY: "auto",
+    }}
+  >
+    {destResults.map((item, i) => (
+      <div
+        key={i}
+        onClick={() =>
+          selectDest(
+            item.feature
+          )
+        }
+        style={{
+          padding: "14px 16px",
+          cursor: "pointer",
+          borderBottom:
+            i !==
+            destResults.length - 1
+              ? "1px solid #f3f3f3"
+              : "none",
+
+          display: "flex",
+          justifyContent:
+            "space-between",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 15,
+              fontWeight: 600,
+              color: "#111",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow:
+                "ellipsis",
+            }}
+          >
+            {item.matchedText}
           </div>
-        )}
+
+          {item.actualName !==
+            item.matchedText && (
+            <div
+              style={{
+                fontSize: 12,
+                color: "#777",
+                marginTop: 3,
+                whiteSpace:
+                  "nowrap",
+                overflow: "hidden",
+                textOverflow:
+                  "ellipsis",
+              }}
+            >
+              {
+                item.actualName
+              }
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
+            minWidth: 52,
+            height: 26,
+            borderRadius: 999,
+            background:
+              "#EEF4FF",
+            color: "#2563EB",
+            fontSize: 12,
+            fontWeight: 700,
+            display: "flex",
+            alignItems: "center",
+            justifyContent:
+              "center",
+            padding: "0 10px",
+            flexShrink: 0,
+          }}
+        >
+          {item.floorLabel}
+        </div>
+      </div>
+    ))}
+  </div>
+)}
       </div>
 
       {/* 🏢 FLOOR SWITCHER */}
