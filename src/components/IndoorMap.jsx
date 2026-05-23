@@ -504,43 +504,110 @@ const createTextTexture = async (text) => {
   });
 
   // ── ESCALATORS (fixed-size GLB aligned to polygon direction) ──────────
-  const escalatorPlacementsByModel = new Map();
+  // ── BUILD POINT LOOKUP: polygonId → point feature ──────────────────────
 
-  for (const feature of escalatorFeatures) {
-    const p = feature.properties || {};
-    const center =
-      (Array.isArray(p.centroid) ? p.centroid : null) ||
-      getPoleOfInaccessibility(feature.geometry) ||
-      getPolygonCenter(feature.geometry);
-    const modelUrl = getEscalatorModelUrl(feature);
+// ── BUILD POINT LOOKUP: polygonId → point feature ──────────────────────
+const escalatorPointByPolygonId = new Map();
 
-    if (!center || !modelUrl) continue;
+for (const feature of floorFeatures) {
+  if (feature.geometry?.type !== "Point") continue;
+  if (!isEscalatorFeature(feature)) continue;
 
-    const placements = escalatorPlacementsByModel.get(modelUrl) || [];
-    placements.push({
-      center,
-      z: getFeatureBaseHeight(p) + 0.02,
-      rot: getPolygonRotationRad(feature.geometry),
-      footprint: {
-        lengthM: ESCALATOR_MODEL_LENGTH_M,
-        widthM: ESCALATOR_MODEL_WIDTH_M,
-        heightM: ESCALATOR_MODEL_HEIGHT_M,
-      },
-      rotationOffsetRad: ESCALATOR_MODEL_ROTATION_OFFSET_RAD,
-      uprightRollRad: ESCALATOR_MODEL_UPRIGHT_ROLL_RAD,
-    });
-    escalatorPlacementsByModel.set(modelUrl, placements);
+  const p = feature.properties || {};
+  const polygonIds = [
+    ...(p.associatedPolygons || []),
+    ...(feature.associatedPolygons || []),
+  ].map(String);
+
+  for (const polyId of polygonIds) {
+    escalatorPointByPolygonId.set(polyId, feature);
+  }
+}
+
+// ── ESCALATORS ─────────────────────────────────────────────────────────
+const escalatorPlacementsByModel = new Map();
+
+for (const feature of escalatorFeatures) {
+  const p = feature.properties || {};
+  const modelUrl = getEscalatorModelUrl(feature);
+  if (!modelUrl) continue;
+
+  const polygonId = String(
+    feature.id || feature._id || p.id || p._id || ""
+  );
+
+  const polygonCenter =
+    (Array.isArray(p.centroid) ? p.centroid : null) ||
+    getPoleOfInaccessibility(feature.geometry) ||
+    getPolygonCenter(feature.geometry);
+
+  if (!polygonCenter) continue;
+
+  const pointFeature = escalatorPointByPolygonId.get(polygonId);
+
+  let placementCoords;
+  let rotationRad;
+
+
+if (pointFeature) {
+  placementCoords = pointFeature.geometry.coordinates;
+
+  // Use polygon's own long axis — already perfectly aligned to its edges
+  const longAxisRad = getPolygonRotationRad(feature.geometry);
+
+  // Resolve which of the two directions faces INTO the polygon
+  // Correct dx for lng distortion so dot product is in metric space
+  const dx = polygonCenter[0] - placementCoords[0];
+  const dy = polygonCenter[1] - placementCoords[1];
+
+  const centerLat = (polygonCenter[1] + placementCoords[1]) / 2;
+  const metersPerDegLng = Math.cos((centerLat * Math.PI) / 180);
+
+  const dxM = dx * metersPerDegLng;
+  const dyM = dy;
+
+  // getPolygonRotationRad returns -atan2(dy,dx), so reconstruct the axis vector
+  // The axis unit vector for angle θ is (cos θ, sin θ) — but since rot = -atan2(dy,dx):
+  // cos(-atan2(dy,dx)) = cos(atan2(dy,dx)), sin(-atan2(dy,dx)) = -sin(atan2(dy,dx))
+  // Simpler: just use both candidate directions and pick the one with positive dot
+  const ax = Math.cos(longAxisRad);
+  const ay = Math.sin(longAxisRad);
+  const dot = dxM * ax + dyM * ay;
+
+  rotationRad = dot >= 0 ? longAxisRad : longAxisRad + Math.PI;
+}else {
+    placementCoords = polygonCenter;
+    rotationRad = getPolygonRotationRad(feature.geometry);
   }
 
-  Array.from(escalatorPlacementsByModel.entries()).forEach(
-    ([modelUrl, placements], index) => {
-      addTrackedGltfLayer(
-        `escalator-model-3d-${floor}-${index}`,
-        modelUrl,
-        placements
-      );
-    }
-  );
+  if (!placementCoords) continue;
+
+  const placements = escalatorPlacementsByModel.get(modelUrl) || [];
+  placements.push({
+    center: placementCoords,
+    z: getFeatureBaseHeight(p) + 0.02,
+    rot: rotationRad,
+    footprint: {
+      lengthM: ESCALATOR_MODEL_LENGTH_M,
+      widthM:  ESCALATOR_MODEL_WIDTH_M,
+      heightM: ESCALATOR_MODEL_HEIGHT_M,
+    },
+    rotationOffsetRad: ESCALATOR_MODEL_ROTATION_OFFSET_RAD,
+    uprightRollRad:    ESCALATOR_MODEL_UPRIGHT_ROLL_RAD,
+  });
+  escalatorPlacementsByModel.set(modelUrl, placements);
+}
+
+Array.from(escalatorPlacementsByModel.entries()).forEach(
+  ([modelUrl, placements], index) => {
+    addTrackedGltfLayer(
+      `escalator-model-3d-${floor}-${index}`,
+      modelUrl,
+      placements
+    );
+  }
+);
+
 
   // ── SITTING AREAS (fixed-size GLB aligned to polygon direction) ───────
   const sittingAreaPlacementsByModel = new Map();
