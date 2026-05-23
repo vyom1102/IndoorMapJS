@@ -184,25 +184,36 @@ const cleanupFloor = (targetFloor) => {
 // FLOOR SWITCH FUNCTION
 // ─────────────────────────────────────────────────────────────
 
-const switchFloor = async (newFloor) => {
-  if (newFloor === floor) return;
 
-  // remove previous floor render
+const switchFloor = async (
+  newFloor
+) => {
+  if (newFloor === floor)
+    return;
+
   cleanupFloor(floor);
 
-  // update floor state
   setFloor(newFloor);
 
-  // wait next frame so react updates
-  requestAnimationFrame(() => {
-    // re-render route for floor
-    if (routePathRef.current?.length) {
-      renderRouteForFloor(
-        routePathRef.current,
+  requestAnimationFrame(
+    () => {
+      // rerender route
+      if (
+        routePathRef.current
+          ?.length
+      ) {
+        renderRouteForFloor(
+          routePathRef.current,
+          newFloor
+        );
+      }
+
+      // update marker visibility
+      updateMarkerVisibilityForFloor(
         newFloor
       );
     }
-  });
+  );
 };
   // 🧱 Rendering Logic
   useEffect(() => {
@@ -1557,23 +1568,44 @@ if (pointImagePlanes.length) {
 
 
 
-  const renderRouteForFloor = (pathCoords, targetFloor) => {
+  const renderRouteForFloor = (
+  pathCoords,
+  targetFloor
+) => {
   const map = mapRef.current;
 
-  if (!map || !pathCoords?.length) return;
+  if (!map || !pathCoords?.length)
+    return;
 
-  const currentFloorCoords = pathCoords
-    .filter((p) => p.floor === targetFloor)
-    .map((p) => p.coord);
+  const currentFloorCoords =
+    pathCoords
+      .filter(
+        (p) =>
+          p.floor ===
+          targetFloor
+      )
+      .map((p) => p.coord);
 
-  // remove old route if no coords on floor
-  if (!currentFloorCoords.length) {
-    if (map.getLayer("route-line")) {
-      map.removeLayer("route-line");
+  // remove old route if no coords
+  if (
+    !currentFloorCoords.length
+  ) {
+    if (
+      map.getLayer(
+        "route-line"
+      )
+    ) {
+      map.removeLayer(
+        "route-line"
+      );
     }
 
-    if (map.getSource("route")) {
-      map.removeSource("route");
+    if (
+      map.getSource("route")
+    ) {
+      map.removeSource(
+        "route"
+      );
     }
 
     return;
@@ -1583,31 +1615,103 @@ if (pointImagePlanes.length) {
     type: "Feature",
     geometry: {
       type: "LineString",
-      coordinates: currentFloorCoords,
+      coordinates:
+        currentFloorCoords,
     },
   };
 
-  if (map.getSource("route")) {
-    map.getSource("route").setData(routeGeo);
+  if (
+    map.getSource("route")
+  ) {
+    map
+      .getSource("route")
+      .setData(routeGeo);
   } else {
-    map.addSource("route", {
-      type: "geojson",
-      data: routeGeo,
-    });
+    map.addSource(
+      "route",
+      {
+        type: "geojson",
+        data: routeGeo,
+      }
+    );
 
     map.addLayer({
       id: "route-line",
       type: "line",
       source: "route",
       layout: {
-        "line-cap": "round",
-        "line-join": "round",
+        "line-cap":
+          "round",
+        "line-join":
+          "round",
       },
       paint: {
-        "line-color": "#007AFF",
+        "line-color":
+          "#007AFF",
         "line-width": 5,
       },
     });
+  }
+
+  // 🔥 FIT ROUTE ON SCREEN
+  if (
+    currentFloorCoords.length >
+    1
+  ) {
+    const bounds =
+      new maplibregl.LngLatBounds();
+
+    currentFloorCoords.forEach(
+      (c) =>
+        bounds.extend(c)
+    );
+
+    map.fitBounds(bounds, {
+      padding: 80,
+      duration: 800,
+      maxZoom: 20,
+    });
+  }
+};
+const updateMarkerVisibilityForFloor = (
+  activeFloor
+) => {
+  const map = mapRef.current;
+
+  if (!map) return;
+
+  // SOURCE
+  if (sourceRef.current) {
+    const showSource =
+      sourceFloorRef.current ===
+      activeFloor;
+
+    const el =
+      sourceRef.current.getElement();
+
+    if (el) {
+      el.style.display =
+        showSource
+          ? "block"
+          : "none";
+    }
+  }
+
+  // DESTINATION
+  if (destRef.current) {
+    const showDest =
+      destFloorRef.current ===
+      activeFloor;
+
+    const el =
+      destRef.current.getElement();
+
+    if (el) {
+      el.style.display =
+        showDest
+          ? "block"
+          : "none";
+    }
   }
 };
   const handleRouting = async () => {
@@ -1726,6 +1830,11 @@ useEffect(() => {
     floor
   );
 }, [floor]);
+useEffect(() => {
+  updateMarkerVisibilityForFloor(
+    floor
+  );
+}, [floor]);
   
 const searchGoogleNearbyPlaces =
   async (query) => {
@@ -1807,72 +1916,7 @@ const searchGoogleNearbyPlaces =
       return [];
     }
   };
-// const searchGoogleNearbyPlaces = async (
-//   query
-// ) => {
-//   try {
-//     const map =
-//       mapRef.current;
-
-//     const center =
-//       map?.getCenter();
-
-//     if (!center) return [];
-
-//     // YOUR API KEY
-//     const API_KEY =
-//       "AIzaSyA0U_ddvL7t0gRdteVw_9MpVER1N0oqfY8";
-
-//     const url =
-//       `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(
-//         query
-//       )}&location=${center.lat},${center.lng}&radius=3000&key=${API_KEY}`;
-
-//     const res = await fetch(url);
-
-//     const data =
-//       await res.json();
-
-//     if (
-//       !data?.results
-//     ) {
-//       return [];
-//     }
-
-//     return data.results.map(
-//       (place) => ({
-//         isGooglePlace: true,
-
-//         name:
-//           place.name,
-
-//         address:
-//           place.formatted_address,
-
-//         location: {
-//           lng:
-//             place.geometry
-//               .location.lng,
-//           lat:
-//             place.geometry
-//               .location.lat,
-//         },
-
-//         rating:
-//           place.rating,
-//       })
-//     );
-//   } catch (e) {
-//     console.log(
-//       "Google places error",
-//       e
-//     );
-
-//     return [];
-//   }
-// };
-// const searchPlaces = (query) => {
-  const searchPlaces = async (
+ const searchPlaces = async (
   query
 ) => {
   if (!geo || !query) return [];
@@ -2054,10 +2098,6 @@ return results.slice(
 );
 };
 
-  // const handleSourceSearch = (val) => {
-  //   setSourceQuery(val);
-  //   setSourceResults(searchPlaces(val));
-  // };
   const handleSourceSearch =
   async (val) => {
     setSourceQuery(val);
@@ -2243,6 +2283,9 @@ const selectSource = async (
       sourceRef.current.setLngLat(
         coords
       );
+      updateMarkerVisibilityForFloor(
+  targetFloor
+);
     }
 
     setSourceQuery(
@@ -2322,6 +2365,9 @@ const selectSource = async (
     sourceRef.current.setLngLat(
       coords
     );
+    updateMarkerVisibilityForFloor(
+  targetFloor
+);
   }
 
   setSourceQuery(
@@ -2415,6 +2461,9 @@ const targetFloor =
       destRef.current.setLngLat(
         coords
       );
+      updateMarkerVisibilityForFloor(
+  targetFloor
+);
     }
 
     setDestQuery(
@@ -2493,6 +2542,9 @@ const targetFloor =
     destRef.current.setLngLat(
       coords
     );
+    updateMarkerVisibilityForFloor(
+  targetFloor
+);
   }
 
   setDestQuery(
@@ -2519,118 +2571,6 @@ const targetFloor =
     handleRouting();
   }
 };
-//   const selectSource = (feature) => {
-//   const map = mapRef.current;
-//   if (!map) return;
-
-//   const coords =
-//     feature.properties?.centroid ||
-//     feature.geometry.coordinates;
-
-//   // IMPORTANT
-//   const targetFloor =
-//     feature.properties?.floor ?? 0;
-
-//   // store selected floor
-//   sourceFloorRef.current =
-//     targetFloor;
-
-//   // auto switch floor
-//   if (targetFloor !== floor) {
-//     switchFloor(targetFloor);
-//   }
-
-//   if (!sourceRef.current) {
-//     sourceRef.current =
-//       new maplibregl.Marker({
-//         color: "green",
-//       })
-//         .setLngLat(coords)
-//         .addTo(map);
-//   } else {
-//     sourceRef.current.setLngLat(
-//       coords
-//     );
-//   }
-
-//   setSourceQuery(
-//     feature.properties
-//       ?.renderName ||
-//       feature.properties
-//         ?.name ||
-//       ""
-//   );
-
-//   setSourceResults([]);
-
-//   map.flyTo({
-//     center: coords,
-//     zoom: 20,
-//   });
-
-//   if (
-//     sourceRef.current &&
-//     destRef.current
-//   ) {
-//     handleRouting();
-//   }
-// };
-// const selectDest = (feature) => {
-//   const map = mapRef.current;
-//   if (!map) return;
-
-//   const coords =
-//     feature.properties?.centroid ||
-//     feature.geometry.coordinates;
-
-//   // IMPORTANT
-//   const targetFloor =
-//     feature.properties?.floor ?? 0;
-
-//   // store selected floor
-//   destFloorRef.current =
-//     targetFloor;
-
-//   // auto switch floor
-//   if (targetFloor !== floor) {
-//     switchFloor(targetFloor);
-//   }
-
-//   if (!destRef.current) {
-//     destRef.current =
-//       new maplibregl.Marker({
-//         color: "red",
-//       })
-//         .setLngLat(coords)
-//         .addTo(map);
-//   } else {
-//     destRef.current.setLngLat(
-//       coords
-//     );
-//   }
-
-//   setDestQuery(
-//     feature.properties
-//       ?.renderName ||
-//       feature.properties
-//         ?.name ||
-//       ""
-//   );
-
-//   setDestResults([]);
-
-//   map.flyTo({
-//     center: coords,
-//     zoom: 20,
-//   });
-
-//   if (
-//     sourceRef.current &&
-//     destRef.current
-//   ) {
-//     handleRouting();
-//   }
-// };
 
   const dropdownStyle = {
     background: "#fff",
