@@ -1714,6 +1714,42 @@ const updateMarkerVisibilityForFloor = (
     }
   }
 };
+const getFeatureRoutingCoordinates = (
+  feature
+) => {
+  if (!feature) return null;
+
+  const geometryType =
+    feature.geometry?.type;
+
+  // ─────────────────────────────
+  // POINT FEATURE
+  // use actual geometry
+  // ─────────────────────────────
+
+  if (
+    geometryType === "Point"
+  ) {
+    return feature.geometry
+      ?.coordinates;
+  }
+
+  // ─────────────────────────────
+  // POLYGON FEATURE
+  // fallback to centroid
+  // ─────────────────────────────
+
+  return (
+    feature.properties
+      ?.centroid ||
+    getPoleOfInaccessibility(
+      feature.geometry
+    ) ||
+    getPolygonCenter(
+      feature.geometry
+    )
+  );
+};
   const handleRouting = async () => {
   if (!sourceRef.current || !destRef.current) return;
 
@@ -1916,77 +1952,103 @@ const searchGoogleNearbyPlaces =
       return [];
     }
   };
- const searchPlaces = async (
+  const searchPlaces = async (
   query
 ) => {
-  if (!geo || !query) return [];
+  if (!geo || !query)
+    return [];
 
   const q = query
     .toLowerCase()
     .trim();
 
-  const seen = new Set();
+  const seen =
+    new Set();
 
   const results = [];
 
-  // for (const f of geo.features) {
-  //   const p = f.properties || {};
+  for (const f of geo.features) {
+    const p =
+      f.properties || {};
 
-  //   if (!p) continue;
-for (const f of geo.features) {
-  const p = f.properties || {};
+    if (!p) continue;
 
-  if (!p) continue;
+    // ─────────────────────────────
+    // ONLY POINT FEATURES
+    // ─────────────────────────────
 
-  const type = String(
-    p.type ||
-    p.polygonType ||
-    ""
-  ).toLowerCase();
+    if (
+      f.geometry?.type !==
+      "Point"
+    ) {
+      continue;
+    }
 
-  const geometryType =
-    f.geometry?.type || "";
+    const type = String(
+      p.type ||
+        p.polygonType ||
+        ""
+    ).toLowerCase();
 
-  const name = String(
-    p.name || ""
-  ).toLowerCase();
+    const name = String(
+      p.name || ""
+    ).toLowerCase();
 
-  // ─────────────────────────────
-  // IGNORE TYPES IN SEARCH
-  // ─────────────────────────────
+    // ─────────────────────────────
+    // IGNORE HELPER TYPES
+    // ─────────────────────────────
 
-  const shouldIgnore =
-    type.includes("waypoint") ||
-    type.includes("centroid") ||
-    type.includes("restricted area") ||
-    type.includes("beacon") ||
-    name.includes("waypoint") ||
-    name.includes("centroid") ||
-    name.includes("restricted area") ||
-    name.includes("beacon");
+    const shouldIgnore =
+      type.includes(
+        "waypoint"
+      ) ||
+      type.includes(
+        "centroid"
+      ) ||
+      type.includes(
+        "restricted area"
+      ) ||
+      type.includes(
+        "beacon"
+      ) ||
+      name.includes(
+        "waypoint"
+      ) ||
+      name.includes(
+        "centroid"
+      ) ||
+      name.includes(
+        "restricted area"
+      ) ||
+      name.includes(
+        "beacon"
+      );
 
-  if (shouldIgnore) continue;
+    if (shouldIgnore)
+      continue;
 
-  // ignore invalid helper points
-  if (
-    geometryType === "Point" &&
-    (
+    // ─────────────────────────────
+    // INVALID POINTS
+    // ─────────────────────────────
+
+    if (
       !p.name &&
       !p.renderName
-    )
-  ) {
-    continue;
-  }
+    ) {
+      continue;
+    }
 
-    const renderName = String(
-      p.renderName || ""
-    ).trim();
+    const renderName =
+      String(
+        p.renderName || ""
+      ).trim();
 
-    const keywords = Array.isArray(
-      p.keywords
-    )
-      ? p.keywords
-      : [];
+    const keywords =
+      Array.isArray(
+        p.keywords
+      )
+        ? p.keywords
+        : [];
 
     // ─────────────────────────────
     // MATCHING
@@ -2000,15 +2062,14 @@ for (const f of geo.features) {
       );
 
     const matched =
-      name
-        .toLowerCase()
-        .includes(q) ||
+      name.includes(q) ||
       renderName
         .toLowerCase()
         .includes(q) ||
       matchedKeyword;
 
-    if (!matched) continue;
+    if (!matched)
+      continue;
 
     // ─────────────────────────────
     // UNIQUE
@@ -2019,7 +2080,9 @@ for (const f of geo.features) {
       f.id ||
       name;
 
-    if (seen.has(uniqueKey))
+    if (
+      seen.has(uniqueKey)
+    )
       continue;
 
     seen.add(uniqueKey);
@@ -2031,13 +2094,16 @@ for (const f of geo.features) {
     const floorNo =
       p.floor ?? 0;
 
-    let floorLabel = "";
+    let floorLabel =
+      "";
 
     if (floorNo < 0) {
       floorLabel = `B${Math.abs(
         floorNo
       )}`;
-    } else if (floorNo === 0) {
+    } else if (
+      floorNo === 0
+    ) {
       floorLabel = "G";
     } else {
       floorLabel = `F${floorNo}`;
@@ -2050,53 +2116,238 @@ for (const f of geo.features) {
     results.push({
       feature: f,
 
-      // searched keyword
       matchedText:
         matchedKeyword ||
         renderName ||
         name,
 
-      // actual place/platform
       actualName:
         renderName ||
         name,
 
-      // formatted floor
       floorLabel,
     });
 
-    if (results.length >= 10)
+    if (
+      results.length >= 10
+    )
       break;
   }
 
-  // return results;
-  const googlePlaces =
-  await searchGoogleNearbyPlaces(
-    query
-  );
+  // ─────────────────────────────
+  // GOOGLE RESULTS ONLY IF EMPTY
+  // ─────────────────────────────
 
-googlePlaces.forEach(
-  (g) => {
-    results.push({
-      googlePlace: g,
+  if (results.length === 0) {
+    const googlePlaces =
+      await searchGoogleNearbyPlaces(
+        query
+      );
 
-      matchedText:
-        g.name,
+    googlePlaces.forEach(
+      (g) => {
+        results.push({
+          googlePlace: g,
 
-      actualName:
-        g.address,
+          matchedText:
+            g.name,
 
-      floorLabel:
-        "Outside",
-    });
+          actualName:
+            g.address,
+
+          floorLabel:
+            "Outside",
+        });
+      }
+    );
   }
-);
 
-return results.slice(
-  0,
-  15
-);
+  return results.slice(
+    0,
+    15
+  );
 };
+//  const searchPlaces = async (
+//   query
+// ) => {
+//   if (!geo || !query) return [];
+
+//   const q = query
+//     .toLowerCase()
+//     .trim();
+
+//   const seen = new Set();
+
+//   const results = [];
+
+//   // for (const f of geo.features) {
+//   //   const p = f.properties || {};
+
+//   //   if (!p) continue;
+// for (const f of geo.features) {
+//   const p = f.properties || {};
+
+//   if (!p) continue;
+
+//   const type = String(
+//     p.type ||
+//     p.polygonType ||
+//     ""
+//   ).toLowerCase();
+
+//   const geometryType =
+//     f.geometry?.type || "";
+
+//   const name = String(
+//     p.name || ""
+//   ).toLowerCase();
+
+//   // ─────────────────────────────
+//   // IGNORE TYPES IN SEARCH
+//   // ─────────────────────────────
+
+//   const shouldIgnore =
+//     type.includes("waypoint") ||
+//     type.includes("centroid") ||
+//     type.includes("restricted area") ||
+//     type.includes("beacon") ||
+//     name.includes("waypoint") ||
+//     name.includes("centroid") ||
+//     name.includes("restricted area") ||
+//     name.includes("beacon");
+
+//   if (shouldIgnore) continue;
+
+//   // ignore invalid helper points
+//   if (
+//     geometryType === "Point" &&
+//     (
+//       !p.name &&
+//       !p.renderName
+//     )
+//   ) {
+//     continue;
+//   }
+
+//     const renderName = String(
+//       p.renderName || ""
+//     ).trim();
+
+//     const keywords = Array.isArray(
+//       p.keywords
+//     )
+//       ? p.keywords
+//       : [];
+
+//     // ─────────────────────────────
+//     // MATCHING
+//     // ─────────────────────────────
+
+//     const matchedKeyword =
+//       keywords.find((k) =>
+//         String(k)
+//           .toLowerCase()
+//           .includes(q)
+//       );
+
+//     const matched =
+//       name
+//         .toLowerCase()
+//         .includes(q) ||
+//       renderName
+//         .toLowerCase()
+//         .includes(q) ||
+//       matchedKeyword;
+
+//     if (!matched) continue;
+
+//     // ─────────────────────────────
+//     // UNIQUE
+//     // ─────────────────────────────
+
+//     const uniqueKey =
+//       p.landmarkId ||
+//       f.id ||
+//       name;
+
+//     if (seen.has(uniqueKey))
+//       continue;
+
+//     seen.add(uniqueKey);
+
+//     // ─────────────────────────────
+//     // FLOOR LABEL
+//     // ─────────────────────────────
+
+//     const floorNo =
+//       p.floor ?? 0;
+
+//     let floorLabel = "";
+
+//     if (floorNo < 0) {
+//       floorLabel = `B${Math.abs(
+//         floorNo
+//       )}`;
+//     } else if (floorNo === 0) {
+//       floorLabel = "G";
+//     } else {
+//       floorLabel = `F${floorNo}`;
+//     }
+
+//     // ─────────────────────────────
+//     // PUSH RESULT
+//     // ─────────────────────────────
+
+//     results.push({
+//       feature: f,
+
+//       // searched keyword
+//       matchedText:
+//         matchedKeyword ||
+//         renderName ||
+//         name,
+
+//       // actual place/platform
+//       actualName:
+//         renderName ||
+//         name,
+
+//       // formatted floor
+//       floorLabel,
+//     });
+
+//     if (results.length >= 10)
+//       break;
+//   }
+
+//   // return results;
+//   const googlePlaces =
+//   await searchGoogleNearbyPlaces(
+//     query
+//   );
+
+// googlePlaces.forEach(
+//   (g) => {
+//     results.push({
+//       googlePlace: g,
+
+//       matchedText:
+//         g.name,
+
+//       actualName:
+//         g.address,
+
+//       floorLabel:
+//         "Outside",
+//     });
+//   }
+// );
+
+// return results.slice(
+//   0,
+//   15
+// );
+// };
 
   const handleSourceSearch =
   async (val) => {
@@ -2322,12 +2573,15 @@ const selectSource = async (
   const feature =
     item.feature;
 
-  const coords =
-    feature.properties
-      ?.centroid ||
-    feature.geometry
-      ?.coordinates;
-
+  // const coords =
+  //   feature.properties
+  //     ?.centroid ||
+  //   feature.geometry
+  //     ?.coordinates;
+const coords =
+  getFeatureRoutingCoordinates(
+    feature
+  );
   if (!coords)
     return;
 
@@ -2500,12 +2754,15 @@ const targetFloor =
   const feature =
     item.feature;
 
-  const coords =
-    feature.properties
-      ?.centroid ||
-    feature.geometry
-      ?.coordinates;
-
+  // const coords =
+  //   feature.properties
+  //     ?.centroid ||
+  //   feature.geometry
+  //     ?.coordinates;
+const coords =
+  getFeatureRoutingCoordinates(
+    feature
+  );
   if (!coords)
     return;
 
