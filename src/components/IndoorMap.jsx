@@ -1738,14 +1738,57 @@ const searchPlaces = (query) => {
 
   const results = [];
 
-  for (const f of geo.features) {
-    const p = f.properties || {};
+  // for (const f of geo.features) {
+  //   const p = f.properties || {};
 
-    if (!p) continue;
+  //   if (!p) continue;
+for (const f of geo.features) {
+  const p = f.properties || {};
 
-    const name = String(
-      p.name || ""
-    ).trim();
+  if (!p) continue;
+
+  const type = String(
+    p.type ||
+    p.polygonType ||
+    ""
+  ).toLowerCase();
+
+  const geometryType =
+    f.geometry?.type || "";
+
+  const name = String(
+    p.name || ""
+  ).toLowerCase();
+
+  // ─────────────────────────────
+  // IGNORE TYPES IN SEARCH
+  // ─────────────────────────────
+
+  const shouldIgnore =
+    type.includes("waypoint") ||
+    type.includes("centroid") ||
+    type.includes("restricted area") ||
+    type.includes("beacon") ||
+    name.includes("waypoint") ||
+    name.includes("centroid") ||
+    name.includes("restricted area") ||
+    name.includes("beacon");
+
+  if (shouldIgnore) continue;
+
+  // ignore invalid helper points
+  if (
+    geometryType === "Point" &&
+    (
+      !p.name &&
+      !p.renderName
+    )
+  ) {
+    continue;
+  }
+    // const name = String(
+    //   p.name || ""
+    // ).trim();
 
     const renderName = String(
       p.renderName || ""
