@@ -1727,7 +1727,154 @@ useEffect(() => {
   );
 }, [floor]);
   
-const searchPlaces = (query) => {
+const searchGoogleNearbyPlaces =
+  async (query) => {
+    try {
+      const map =
+        mapRef.current;
+
+      const center =
+        map?.getCenter();
+
+      if (!center)
+        return [];
+
+      // FREE PHOTON API
+      const url =
+        `https://photon.komoot.io/api/?q=${encodeURIComponent(
+          query
+        )}&lat=${center.lat}&lon=${center.lng}&limit=8`;
+
+      const res =
+        await fetch(url);
+
+      const data =
+        await res.json();
+
+      if (
+        !data?.features
+      ) {
+        return [];
+      }
+
+      return data.features.map(
+        (f) => {
+          const p =
+            f.properties ||
+            {};
+
+          return {
+            isGooglePlace: true,
+
+            // display name
+            name:
+              p.name ||
+              p.street ||
+              query,
+
+            // subtitle
+            address: [
+              p.city,
+              p.state,
+              p.country,
+            ]
+              .filter(Boolean)
+              .join(", "),
+
+            location: {
+              lng:
+                f.geometry
+                  .coordinates[0],
+
+              lat:
+                f.geometry
+                  .coordinates[1],
+            },
+
+            type:
+              p.osm_value ||
+              p.type ||
+              "",
+          };
+        }
+      );
+    } catch (e) {
+      console.log(
+        "Free places API error",
+        e
+      );
+
+      return [];
+    }
+  };
+// const searchGoogleNearbyPlaces = async (
+//   query
+// ) => {
+//   try {
+//     const map =
+//       mapRef.current;
+
+//     const center =
+//       map?.getCenter();
+
+//     if (!center) return [];
+
+//     // YOUR API KEY
+//     const API_KEY =
+//       "AIzaSyA0U_ddvL7t0gRdteVw_9MpVER1N0oqfY8";
+
+//     const url =
+//       `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(
+//         query
+//       )}&location=${center.lat},${center.lng}&radius=3000&key=${API_KEY}`;
+
+//     const res = await fetch(url);
+
+//     const data =
+//       await res.json();
+
+//     if (
+//       !data?.results
+//     ) {
+//       return [];
+//     }
+
+//     return data.results.map(
+//       (place) => ({
+//         isGooglePlace: true,
+
+//         name:
+//           place.name,
+
+//         address:
+//           place.formatted_address,
+
+//         location: {
+//           lng:
+//             place.geometry
+//               .location.lng,
+//           lat:
+//             place.geometry
+//               .location.lat,
+//         },
+
+//         rating:
+//           place.rating,
+//       })
+//     );
+//   } catch (e) {
+//     console.log(
+//       "Google places error",
+//       e
+//     );
+
+//     return [];
+//   }
+// };
+// const searchPlaces = (query) => {
+  const searchPlaces = async (
+  query
+) => {
   if (!geo || !query) return [];
 
   const q = query
@@ -1786,9 +1933,6 @@ for (const f of geo.features) {
   ) {
     continue;
   }
-    // const name = String(
-    //   p.name || ""
-    // ).trim();
 
     const renderName = String(
       p.renderName || ""
@@ -1881,45 +2025,298 @@ for (const f of geo.features) {
       break;
   }
 
-  return results;
+  // return results;
+  const googlePlaces =
+  await searchGoogleNearbyPlaces(
+    query
+  );
+
+googlePlaces.forEach(
+  (g) => {
+    results.push({
+      googlePlace: g,
+
+      matchedText:
+        g.name,
+
+      actualName:
+        g.address,
+
+      floorLabel:
+        "Outside",
+    });
+  }
+);
+
+return results.slice(
+  0,
+  15
+);
 };
 
-  const handleSourceSearch = (val) => {
+  // const handleSourceSearch = (val) => {
+  //   setSourceQuery(val);
+  //   setSourceResults(searchPlaces(val));
+  // };
+  const handleSourceSearch =
+  async (val) => {
     setSourceQuery(val);
-    setSourceResults(searchPlaces(val));
+
+    const results =
+      await searchPlaces(
+        val
+      );
+
+    setSourceResults(
+      results
+    );
   };
 
-  const handleDestSearch = (val) => {
+  const handleDestSearch = async(val) => {
     setDestQuery(val);
-    setDestResults(searchPlaces(val));
+    const results =
+      await searchPlaces(
+        val
+      );
+    setDestResults(results);
   };
-  const selectSource = (feature) => {
-  const map = mapRef.current;
+  const findNearestExit = (
+  targetCoords
+) => {
+  if (!geo) return null;
+
+  let nearest = null;
+
+  let minDist =
+    Infinity;
+
+  for (const f of geo.features) {
+    const p =
+      f.properties || {};
+
+    const type = String(
+      p.type ||
+      p.polygonType ||
+      ""
+    ).toLowerCase();
+
+    // const isExit =
+    //   type.includes(
+    //     "main entry"
+    //   ) ||
+    //   type.includes(
+    //     "exit"
+    //   );
+const isMainEntry =
+  type.includes(
+    "main entry"
+  ) ||
+  type.includes(
+    "main entrance"
+  );
+
+const isExitOnly =
+  type.includes(
+    "exit only"
+  );
+
+const isEmergencyExit =
+  type.includes(
+    "emergency exit"
+  );
+
+const isExit =
+  (
+    isMainEntry ||
+    isExitOnly
+  ) &&
+  !isEmergencyExit;
+    if (!isExit)
+      continue;
+
+    const coords =
+      p.centroid ||
+      f.geometry
+        ?.coordinates;
+
+    if (!coords)
+      continue;
+
+    const dx =
+      coords[0] -
+      targetCoords.lng;
+
+    const dy =
+      coords[1] -
+      targetCoords.lat;
+
+    const dist =
+      Math.sqrt(
+        dx * dx +
+          dy * dy
+      );
+
+    if (
+      dist < minDist
+    ) {
+      minDist = dist;
+      nearest = {
+        feature: f,
+        coords,
+        floor:
+        p.floor ?? 0,
+      };
+    }
+ 
+    
+  }
+  console.log(nearest);
+  
+  return nearest;
+};
+const selectSource = async (
+  item
+) => {
+  const map =
+    mapRef.current;
+
   if (!map) return;
 
+  // ─────────────────────────────
+  // GOOGLE PLACE FLOW
+  // ─────────────────────────────
+
+  if (
+    item.googlePlace
+  ) {
+    const g =
+      item.googlePlace;
+
+    const nearestExit =
+      findNearestExit(
+        g.location
+      );
+
+    if (
+      !nearestExit
+    ) {
+      return;
+    }
+
+    const coords =
+      nearestExit.coords;
+
+    // const targetFloor =
+    //   nearestExit.feature
+    //     .properties
+    //     ?.floor ?? 0;
+        const targetFloor =
+  nearestExit.floor ?? 0;
+
+    sourceFloorRef.current =
+      targetFloor;
+
+    if (
+      targetFloor !==
+      floor
+    ) {
+      await switchFloor(
+        targetFloor
+      );
+    }
+
+    if (
+      !sourceRef.current
+    ) {
+      sourceRef.current =
+        new maplibregl.Marker(
+          {
+            color:
+              "green",
+          }
+        )
+          .setLngLat(
+            coords
+          )
+          .addTo(map);
+    } else {
+      sourceRef.current.setLngLat(
+        coords
+      );
+    }
+
+    setSourceQuery(
+      g.name
+    );
+
+    setSourceResults(
+      []
+    );
+
+    // fly outside
+    map.flyTo({
+      center: [
+        g.location.lng,
+        g.location.lat,
+      ],
+      zoom: 18,
+    });
+
+    if (
+      sourceRef.current &&
+      destRef.current
+    ) {
+      handleRouting();
+    }
+
+    return;
+  }
+
+  // ─────────────────────────────
+  // INTERNAL FEATURE FLOW
+  // ─────────────────────────────
+
+  const feature =
+    item.feature;
+
   const coords =
-    feature.properties?.centroid ||
-    feature.geometry.coordinates;
+    feature.properties
+      ?.centroid ||
+    feature.geometry
+      ?.coordinates;
 
-  // IMPORTANT
+  if (!coords)
+    return;
+
   const targetFloor =
-    feature.properties?.floor ?? 0;
+    feature.properties
+      ?.floor ?? 0;
 
-  // store selected floor
   sourceFloorRef.current =
     targetFloor;
 
-  // auto switch floor
-  if (targetFloor !== floor) {
-    switchFloor(targetFloor);
+  if (
+    targetFloor !==
+    floor
+  ) {
+    await switchFloor(
+      targetFloor
+    );
   }
 
-  if (!sourceRef.current) {
+  if (
+    !sourceRef.current
+  ) {
     sourceRef.current =
-      new maplibregl.Marker({
-        color: "green",
-      })
-        .setLngLat(coords)
+      new maplibregl.Marker(
+        {
+          color:
+            "green",
+        }
+      )
+        .setLngLat(
+          coords
+        )
         .addTo(map);
   } else {
     sourceRef.current.setLngLat(
@@ -1935,7 +2332,9 @@ for (const f of geo.features) {
       ""
   );
 
-  setSourceResults([]);
+  setSourceResults(
+    []
+  );
 
   map.flyTo({
     center: coords,
@@ -1949,33 +2348,146 @@ for (const f of geo.features) {
     handleRouting();
   }
 };
-const selectDest = (feature) => {
-  const map = mapRef.current;
+const selectDest = async (
+  item
+) => {
+  const map =
+    mapRef.current;
+
   if (!map) return;
 
+  // ─────────────────────────────
+  // GOOGLE PLACE FLOW
+  // ─────────────────────────────
+
+  if (
+    item.googlePlace
+  ) {
+    const g =
+      item.googlePlace;
+
+    const nearestExit =
+      findNearestExit(
+        g.location
+      );
+
+    if (
+      !nearestExit
+    ) {
+      return;
+    }
+
+    const coords =
+      nearestExit.coords;
+
+    // const targetFloor =
+    //   nearestExit.feature
+    //     .properties
+    //     ?.floor ?? 0;
+const targetFloor =
+  nearestExit.floor ?? 0;
+    destFloorRef.current =
+      targetFloor;
+
+    if (
+      targetFloor !==
+      floor
+    ) {
+      await switchFloor(
+        targetFloor
+      );
+    }
+
+    if (
+      !destRef.current
+    ) {
+      destRef.current =
+        new maplibregl.Marker(
+          {
+            color: "red",
+          }
+        )
+          .setLngLat(
+            coords
+          )
+          .addTo(map);
+    } else {
+      destRef.current.setLngLat(
+        coords
+      );
+    }
+
+    setDestQuery(
+      g.name
+    );
+
+    setDestResults(
+      []
+    );
+
+    // fly outside
+    map.flyTo({
+      center: [
+        g.location.lng,
+        g.location.lat,
+      ],
+      zoom: 18,
+    });
+
+    if (
+      sourceRef.current &&
+      destRef.current
+    ) {
+      handleRouting();
+    }
+
+    return;
+  }
+
+  // ─────────────────────────────
+  // INTERNAL FEATURE FLOW
+  // ─────────────────────────────
+
+  const feature =
+    item.feature;
+
   const coords =
-    feature.properties?.centroid ||
-    feature.geometry.coordinates;
+    feature.properties
+      ?.centroid ||
+    feature.geometry
+      ?.coordinates;
 
-  // IMPORTANT
+  if (!coords)
+    return;
+
   const targetFloor =
-    feature.properties?.floor ?? 0;
+    feature.properties
+      ?.floor ?? 0;
 
-  // store selected floor
   destFloorRef.current =
     targetFloor;
 
-  // auto switch floor
-  if (targetFloor !== floor) {
-    switchFloor(targetFloor);
+  if (
+    targetFloor !==
+    floor
+  ) {
+    await switchFloor(
+      targetFloor
+    );
   }
 
-  if (!destRef.current) {
+  if (
+    !destRef.current
+  ) {
     destRef.current =
-      new maplibregl.Marker({
-        color: "red",
-      })
-        .setLngLat(coords)
+      new maplibregl.Marker(
+        {
+          color: "red",
+        }
+      )
+        .setLngLat(
+          coords
+        )
         .addTo(map);
   } else {
     destRef.current.setLngLat(
@@ -1991,7 +2503,9 @@ const selectDest = (feature) => {
       ""
   );
 
-  setDestResults([]);
+  setDestResults(
+    []
+  );
 
   map.flyTo({
     center: coords,
@@ -2005,6 +2519,118 @@ const selectDest = (feature) => {
     handleRouting();
   }
 };
+//   const selectSource = (feature) => {
+//   const map = mapRef.current;
+//   if (!map) return;
+
+//   const coords =
+//     feature.properties?.centroid ||
+//     feature.geometry.coordinates;
+
+//   // IMPORTANT
+//   const targetFloor =
+//     feature.properties?.floor ?? 0;
+
+//   // store selected floor
+//   sourceFloorRef.current =
+//     targetFloor;
+
+//   // auto switch floor
+//   if (targetFloor !== floor) {
+//     switchFloor(targetFloor);
+//   }
+
+//   if (!sourceRef.current) {
+//     sourceRef.current =
+//       new maplibregl.Marker({
+//         color: "green",
+//       })
+//         .setLngLat(coords)
+//         .addTo(map);
+//   } else {
+//     sourceRef.current.setLngLat(
+//       coords
+//     );
+//   }
+
+//   setSourceQuery(
+//     feature.properties
+//       ?.renderName ||
+//       feature.properties
+//         ?.name ||
+//       ""
+//   );
+
+//   setSourceResults([]);
+
+//   map.flyTo({
+//     center: coords,
+//     zoom: 20,
+//   });
+
+//   if (
+//     sourceRef.current &&
+//     destRef.current
+//   ) {
+//     handleRouting();
+//   }
+// };
+// const selectDest = (feature) => {
+//   const map = mapRef.current;
+//   if (!map) return;
+
+//   const coords =
+//     feature.properties?.centroid ||
+//     feature.geometry.coordinates;
+
+//   // IMPORTANT
+//   const targetFloor =
+//     feature.properties?.floor ?? 0;
+
+//   // store selected floor
+//   destFloorRef.current =
+//     targetFloor;
+
+//   // auto switch floor
+//   if (targetFloor !== floor) {
+//     switchFloor(targetFloor);
+//   }
+
+//   if (!destRef.current) {
+//     destRef.current =
+//       new maplibregl.Marker({
+//         color: "red",
+//       })
+//         .setLngLat(coords)
+//         .addTo(map);
+//   } else {
+//     destRef.current.setLngLat(
+//       coords
+//     );
+//   }
+
+//   setDestQuery(
+//     feature.properties
+//       ?.renderName ||
+//       feature.properties
+//         ?.name ||
+//       ""
+//   );
+
+//   setDestResults([]);
+
+//   map.flyTo({
+//     center: coords,
+//     zoom: 20,
+//   });
+
+//   if (
+//     sourceRef.current &&
+//     destRef.current
+//   ) {
+//     handleRouting();
+//   }
+// };
 
   const dropdownStyle = {
     background: "#fff",
@@ -2048,7 +2674,7 @@ const selectDest = (feature) => {
         key={i}
         onClick={() =>
           selectSource(
-            item.feature
+            item
           )
         }
         style={{
@@ -2164,7 +2790,7 @@ const selectDest = (feature) => {
         key={i}
         onClick={() =>
           selectDest(
-            item.feature
+            item
           )
         }
         style={{
