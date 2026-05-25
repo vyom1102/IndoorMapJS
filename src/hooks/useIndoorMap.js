@@ -10,9 +10,15 @@ import {
   removeRouteLayers,
   renderRouteForFloor as drawRouteForFloor,
 } from "../utils/routeDisplay";
+import {
+  DEFAULT_MAP_CENTER,
+  getDefaultVenueCenter,
+  VENUE_LOAD_ZOOM,
+} from "../constants/mapDefaults";
 
-export function useIndoorMap() {
+export function useIndoorMap(venueName = "DelhiMetro") {
   const { mapRef, containerRef, ready } = useMap();
+  const resolvedVenue = (venueName || "").trim() || "DelhiMetro";
 
   const [geo, setGeo] = useState(null);
   const [floor, setFloor] = useState(0);
@@ -32,38 +38,79 @@ export function useIndoorMap() {
   const sourceFloorRef = useRef(null);
   const destFloorRef = useRef(null);
   const floorRef = useRef(0);
+  const [venueCenter, setVenueCenter] = useState(getDefaultVenueCenter);
 
-  const venueName = "DelhiMetro";
   const defaultCenter = venueData
     ? [venueData.lng, venueData.lat]
-    : [77.2437, 28.6063];
+    : DEFAULT_MAP_CENTER;
 
-  // Load venue data on mount
+  // Reset map state when venue changes (e.g. different URL)
   useEffect(() => {
-    if (!venueName) return;
+    setGeo(null);
+    setVenueData(null);
+    setVenueCenter(getDefaultVenueCenter());
+    setSourceQuery("");
+    setDestQuery("");
+    setSourceResults([]);
+    setDestResults([]);
+    routePathRef.current = [];
+    graphRef.current = null;
+    sourceFloorRef.current = null;
+    destFloorRef.current = null;
+    sourceRef.current?.remove();
+    destRef.current?.remove();
+    sourceRef.current = null;
+    destRef.current = null;
+    removeRouteLayers(mapRef.current);
+    setRouteRevision((revision) => revision + 1);
+  }, [resolvedVenue]);
+
+  // Load venue metadata
+  useEffect(() => {
+    if (!resolvedVenue) return;
+
+    let cancelled = false;
     const loadVenue = async () => {
-      const data = await loadVenueData(venueName);
-      if (!data) return;
+      const data = await loadVenueData(resolvedVenue);
+      if (cancelled || !data) return;
+      const center = { lng: data.lng, lat: data.lat };
+      setVenueCenter(center);
       setVenueData(data);
       const map = mapRef.current;
       if (map) {
-        map.flyTo({ center: [data.lng, data.lat], zoom: 18 });
+        map.flyTo({
+          center: [center.lng, center.lat],
+          zoom: VENUE_LOAD_ZOOM,
+        });
       }
-      setFloor(data.floors?.[0] || 0);
+      const firstFloor = data.floors?.[0] || 0;
+      floorRef.current = firstFloor;
+      setFloor(firstFloor);
     };
-    loadVenue();
-  }, [venueName]);
 
-  // Fetch GeoJSON data on mount
+    loadVenue();
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedVenue]);
+
+  // Fetch GeoJSON for venue
   useEffect(() => {
-    getGeojsonData(venueName).then((res) => {
-      if (!res?.data) return;
+    if (!resolvedVenue) return;
+
+    let cancelled = false;
+    getGeojsonData(resolvedVenue).then((res) => {
+      if (cancelled || !res?.data) return;
       setGeo({
         type: "FeatureCollection",
         features: res.data.data || res.data.features || [],
       });
     });
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedVenue]);
 
   // Floor cleanup function
   const cleanupFloor = (targetFloor) => {
@@ -344,7 +391,8 @@ export function useIndoorMap() {
     updateMarkerVisibilityForFloor,
     getFeatureRoutingCoordinates,
     handleRouting,
-    venueName,
+    venueName: resolvedVenue,
+    venueCenter,
     defaultCenter,
   };
 }

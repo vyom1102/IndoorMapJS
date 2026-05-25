@@ -1,9 +1,8 @@
-export const searchGoogleNearbyPlaces = async (query, mapRef) => {
-  try {
-    const map = mapRef.current;
-    const center = map?.getCenter();
+import { getDefaultVenueCenter } from "../constants/mapDefaults";
 
-    if (!center) return [];
+export const searchGoogleNearbyPlaces = async (query, venueCenter) => {
+  try {
+    const center = venueCenter || getDefaultVenueCenter();
 
     const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(
       query
@@ -36,7 +35,7 @@ export const searchGoogleNearbyPlaces = async (query, mapRef) => {
   }
 };
 
-export const searchPlaces = async (query, geo) => {
+export const searchPlaces = async (query, geo, venueCenter) => {
   if (!geo || !query) return [];
 
   const q = query.toLowerCase().trim();
@@ -114,7 +113,7 @@ export const searchPlaces = async (query, geo) => {
   }
 
   if (results.length === 0) {
-    const googlePlaces = await searchGoogleNearbyPlaces(query, { current: geo });
+    const googlePlaces = await searchGoogleNearbyPlaces(query, venueCenter);
 
     googlePlaces.forEach((g) => {
       results.push({

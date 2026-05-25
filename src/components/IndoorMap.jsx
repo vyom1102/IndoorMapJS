@@ -3,6 +3,7 @@ import maplibregl from "maplibre-gl";
 import * as THREE from "three";
 
 import { useIndoorMap } from "../hooks/useIndoorMap";
+import { useVenueName } from "../hooks/useVenueName";
 import { splitFeatures } from "../utils/splitFeatures";
 import { addPatternImage } from "../utils/patterns";
 import {
@@ -270,6 +271,7 @@ const createNavigationMarker = () => {
 };
 
 export default function IndoorMap() {
+  const venueName = useVenueName();
   const renderGenerationRef = useRef(0);
   const navigationMarkerRef = useRef(null);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -315,7 +317,8 @@ export default function IndoorMap() {
     updateMarkerVisibilityForFloor,
     getFeatureRoutingCoordinates,
     handleRouting,
-  } = useIndoorMap();
+    venueCenter,
+  } = useIndoorMap(venueName);
 
   const routePoints = routePathRef.current || [];
   const routeSteps = useMemo(
@@ -1249,13 +1252,13 @@ export default function IndoorMap() {
   // Search handlers
   const handleSourceSearch = async (val) => {
     setSourceQuery(val);
-    const results = await searchPlaces(val, geo);
+    const results = await searchPlaces(val, geo, venueCenter);
     setSourceResults(results);
   };
 
   const handleDestSearch = async (val) => {
     setDestQuery(val);
-    const results = await searchPlaces(val, geo);
+    const results = await searchPlaces(val, geo, venueCenter);
     setDestResults(results);
   };
 

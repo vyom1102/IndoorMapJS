@@ -1,19 +1,22 @@
-
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
+import {
+  DEFAULT_MAP_CENTER,
+  DEFAULT_MAP_ZOOM,
+} from "../constants/mapDefaults";
 
 export const useMap = () => {
   const mapRef = useRef(null);
   const containerRef = useRef(null);
   const [ready, setReady] = useState(false);
 
-  useEffect(()=>{
-    if(mapRef.current) return;
+  useEffect(() => {
+    if (mapRef.current) return;
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
-      center: [77.20451273263606,28.543355986530234],
-      zoom:16,
+      center: DEFAULT_MAP_CENTER,
+      zoom: DEFAULT_MAP_ZOOM,
       pitch: 60,
       bearing: 0,
     });
