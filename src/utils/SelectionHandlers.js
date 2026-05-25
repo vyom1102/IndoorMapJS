@@ -65,7 +65,8 @@ export const selectSource = async (
   setSourceResults,
   destRef,
   handleRouting,
-  updateMarkerVisibilityForFloor
+  updateMarkerVisibilityForFloor,
+  geo
 ) => {
   const map = mapRef.current;
 
@@ -74,7 +75,7 @@ export const selectSource = async (
   if (item.googlePlace) {
     const g = item.googlePlace;
 
-    const nearestExit = findNearestExit(g.location, { features: [] });
+    const nearestExit = findNearestExit(g.location, geo);
 
     if (!nearestExit) {
       return;
@@ -167,82 +168,226 @@ export const selectDest = async (
   setDestResults,
   sourceRef,
   handleRouting,
-  updateMarkerVisibilityForFloor
+  updateMarkerVisibilityForFloor,
+  geo
 ) => {
+  console.log("======== DEST CLICK ========");
+  console.log("ITEM:", item);
+
   const map = mapRef.current;
 
-  if (!map) return;
+  console.log("MAP:", map);
 
+  if (!map) {
+    console.log("NO MAP");
+    return;
+  }
+
+  // OUTDOOR PLACE
   if (item.googlePlace) {
+    console.log("OUTDOOR PLACE CLICKED");
+
     const g = item.googlePlace;
 
-    const nearestExit = findNearestExit(g.location, { features: [] });
+    console.log("GOOGLE PLACE:", g);
+
+    console.log("GEO:", geo);
+
+    console.log(
+      "TOTAL FEATURES:",
+      geo?.features?.length
+    );
+
+    const nearestExit =
+      findNearestExit(
+        g.location,
+        geo
+      );
+
+    console.log(
+      "NEAREST EXIT:",
+      nearestExit
+    );
 
     if (!nearestExit) {
+      console.log(
+        "NO EXIT FOUND"
+      );
+
       return;
     }
 
-    const coords = nearestExit.coords;
-    const targetFloor = nearestExit.floor ?? 0;
+    const coords =
+      nearestExit.coords;
 
-    destFloorRef.current = targetFloor;
+    const targetFloor =
+      nearestExit.floor ?? 0;
 
-    if (targetFloor !== floor) {
-      await switchFloor(targetFloor);
+    console.log(
+      "EXIT COORDS:",
+      coords
+    );
+
+    console.log(
+      "TARGET FLOOR:",
+      targetFloor
+    );
+
+    destFloorRef.current =
+      targetFloor;
+
+    if (
+      targetFloor !== floor
+    ) {
+      console.log(
+        "SWITCHING FLOOR"
+      );
+
+      await switchFloor(
+        targetFloor
+      );
     }
 
+    console.log(
+      "CREATING MARKER"
+    );
+
     if (!destRef.current) {
-      destRef.current = new maplibregl.Marker({
-        color: "red",
-      })
-        .setLngLat(coords)
-        .addTo(map);
+      destRef.current =
+        new maplibregl.Marker({
+          color: "red",
+        })
+          .setLngLat(coords)
+          .addTo(map);
+
+      console.log(
+        "NEW MARKER CREATED"
+      );
     } else {
-      destRef.current.setLngLat(coords);
-      updateMarkerVisibilityForFloor(targetFloor);
+      destRef.current.setLngLat(
+        coords
+      );
+
+      updateMarkerVisibilityForFloor(
+        targetFloor
+      );
+
+      console.log(
+        "UPDATED EXISTING MARKER"
+      );
     }
 
     setDestQuery(g.name);
+
     setDestResults([]);
 
+    console.log(
+      "FLYING TO:",
+      g.location
+    );
+
     map.flyTo({
-      center: [g.location.lng, g.location.lat],
+      center: [
+        g.location.lng,
+        g.location.lat,
+      ],
       zoom: 18,
     });
 
-    if (sourceRef.current && destRef.current) {
-      routeAfterFloorUpdate(handleRouting);
+    console.log(
+      "SOURCE REF:",
+      sourceRef.current
+    );
+
+    console.log(
+      "DEST REF:",
+      destRef.current
+    );
+
+    if (
+      sourceRef.current &&
+      destRef.current
+    ) {
+      console.log(
+        "CALLING ROUTING"
+      );
+
+      routeAfterFloorUpdate(
+        handleRouting
+      );
     }
 
     return;
   }
 
-  const feature = item.feature;
-  const coords = getFeatureRoutingCoordinates(feature);
+  console.log(
+    "INDOOR FEATURE CLICK"
+  );
 
-  if (!coords) return;
+  const feature =
+    item.feature;
 
-  const targetFloor = feature.properties?.floor ?? 0;
+  console.log(
+    "FEATURE:",
+    feature
+  );
 
-  destFloorRef.current = targetFloor;
+  const coords =
+    getFeatureRoutingCoordinates(
+      feature
+    );
 
-  if (targetFloor !== floor) {
-    await switchFloor(targetFloor);
+  console.log(
+    "FEATURE COORDS:",
+    coords
+  );
+
+  if (!coords) {
+    console.log(
+      "NO ROUTING COORDS"
+    );
+
+    return;
+  }
+
+  const targetFloor =
+    feature.properties?.floor ??
+    0;
+
+  destFloorRef.current =
+    targetFloor;
+
+  if (
+    targetFloor !== floor
+  ) {
+    await switchFloor(
+      targetFloor
+    );
   }
 
   if (!destRef.current) {
-    destRef.current = new maplibregl.Marker({
-      color: "red",
-    })
-      .setLngLat(coords)
-      .addTo(map);
+    destRef.current =
+      new maplibregl.Marker({
+        color: "red",
+      })
+        .setLngLat(coords)
+        .addTo(map);
   } else {
-    destRef.current.setLngLat(coords);
-    updateMarkerVisibilityForFloor(targetFloor);
+    destRef.current.setLngLat(
+      coords
+    );
+
+    updateMarkerVisibilityForFloor(
+      targetFloor
+    );
   }
 
   setDestQuery(
-    feature.properties?.renderName || feature.properties?.name || ""
+    feature.properties
+      ?.renderName ||
+      feature.properties
+        ?.name ||
+      ""
   );
 
   setDestResults([]);
@@ -252,7 +397,114 @@ export const selectDest = async (
     zoom: 20,
   });
 
-  if (sourceRef.current && destRef.current) {
-    routeAfterFloorUpdate(handleRouting);
+  if (
+    sourceRef.current &&
+    destRef.current
+  ) {
+    routeAfterFloorUpdate(
+      handleRouting
+    );
   }
 };
+// export const selectDest = async (
+//   item,
+//   mapRef,
+//   destRef,
+//   destFloorRef,
+//   floor,
+//   switchFloor,
+//   getFeatureRoutingCoordinates,
+//   setDestQuery,
+//   setDestResults,
+//   sourceRef,
+//   handleRouting,
+//   updateMarkerVisibilityForFloor,
+//   geo
+// ) => {
+//   const map = mapRef.current;
+
+//   if (!map) return;
+
+//   if (item.googlePlace) {
+//     const g = item.googlePlace;
+
+//     const nearestExit = findNearestExit(g.location, geo);
+
+//     if (!nearestExit) {
+//       return;
+//     }
+
+//     const coords = nearestExit.coords;
+//     const targetFloor = nearestExit.floor ?? 0;
+
+//     destFloorRef.current = targetFloor;
+
+//     if (targetFloor !== floor) {
+//       await switchFloor(targetFloor);
+//     }
+
+//     if (!destRef.current) {
+//       destRef.current = new maplibregl.Marker({
+//         color: "red",
+//       })
+//         .setLngLat(coords)
+//         .addTo(map);
+//     } else {
+//       destRef.current.setLngLat(coords);
+//       updateMarkerVisibilityForFloor(targetFloor);
+//     }
+
+//     setDestQuery(g.name);
+//     setDestResults([]);
+
+//     map.flyTo({
+//       center: [g.location.lng, g.location.lat],
+//       zoom: 18,
+//     });
+
+//     if (sourceRef.current && destRef.current) {
+//       routeAfterFloorUpdate(handleRouting);
+//     }
+
+//     return;
+//   }
+
+//   const feature = item.feature;
+//   const coords = getFeatureRoutingCoordinates(feature);
+
+//   if (!coords) return;
+
+//   const targetFloor = feature.properties?.floor ?? 0;
+
+//   destFloorRef.current = targetFloor;
+
+//   if (targetFloor !== floor) {
+//     await switchFloor(targetFloor);
+//   }
+
+//   if (!destRef.current) {
+//     destRef.current = new maplibregl.Marker({
+//       color: "red",
+//     })
+//       .setLngLat(coords)
+//       .addTo(map);
+//   } else {
+//     destRef.current.setLngLat(coords);
+//     updateMarkerVisibilityForFloor(targetFloor);
+//   }
+
+//   setDestQuery(
+//     feature.properties?.renderName || feature.properties?.name || ""
+//   );
+
+//   setDestResults([]);
+
+//   map.flyTo({
+//     center: coords,
+//     zoom: 20,
+//   });
+
+//   if (sourceRef.current && destRef.current) {
+//     routeAfterFloorUpdate(handleRouting);
+//   }
+// };

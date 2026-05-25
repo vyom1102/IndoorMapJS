@@ -186,7 +186,7 @@ export const renderPlannedRoute = (map, pathCoords, targetFloor) => {
   }
 
   upsertGeojsonSource(map, "route-remaining", lineFeature(coords));
-  addLineLayer(map, "route-remaining", "route-remaining", "#007aff", 6);
+  addLineLayer(map, "route-remaining", "route-remaining", "#007aff", 8);
   addArrowLayer(map, "route-remaining");
 };
 

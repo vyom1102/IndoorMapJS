@@ -1263,39 +1263,45 @@ export default function IndoorMap() {
   };
 
   const handleSelectSource = (item) => {
-    selectSource(
-      item,
-      mapRef,
-      sourceRef,
-      sourceFloorRef,
-      floor,
-      switchFloor,
-      getFeatureRoutingCoordinates,
-      setSourceQuery,
-      setSourceResults,
-      destRef,
-      handleRouting,
-      updateMarkerVisibilityForFloor
-    );
-  };
+  console.log("CALLER GEO SOURCE:", geo);
 
-  const handleSelectDest = (item) => {
-    selectDest(
-      item,
-      mapRef,
-      destRef,
-      destFloorRef,
-      floor,
-      switchFloor,
-      getFeatureRoutingCoordinates,
-      setDestQuery,
-      setDestResults,
-      sourceRef,
-      handleRouting,
-      updateMarkerVisibilityForFloor
-    );
-  };
+  selectSource(
+    item,
+    mapRef,
+    sourceRef,
+    sourceFloorRef,
+    floor,
+    switchFloor,
+    getFeatureRoutingCoordinates,
+    setSourceQuery,
+    setSourceResults,
+    destRef,
+    handleRouting,
+    updateMarkerVisibilityForFloor,
+    geo
+  );
+};
 
+const handleSelectDest = (item) => {
+  console.log("CALLER GEO DEST:", geo);
+
+  selectDest(
+    item,
+    mapRef,
+    destRef,
+    destFloorRef,
+    floor,
+    switchFloor,
+    getFeatureRoutingCoordinates,
+    setDestQuery,
+    setDestResults,
+    sourceRef,
+    handleRouting,
+    updateMarkerVisibilityForFloor,
+    geo
+  );
+};
+  
   return (
     <div style={{ height: "100vh", width: "100%", position: "relative" }}>
       <IndoorMapUI
