@@ -573,15 +573,36 @@ export default function IndoorMapUI({
             }}
           >
             <div style={{ fontSize: 52, lineHeight: 0.8 }}>
-              {routeSummary.routeSteps?.[routeSummary.currentStep - 1]?.icon ||
-                "↰"}
+              {routeSummary.routeSteps?.[routeSummary.currentStep +1 ]?.icon ||
+                "◎"}
             </div>
             <div>
               <div style={{ fontSize: 28, fontWeight: 900, lineHeight: 1 }}>
-                {routeSummary.stepDistance}
+                {/* {routeSummary.stepDistance} */}
+                {
+                routeSummary
+                  .routeSteps?.[
+                    routeSummary.currentStep +1
+                  ]?.distance
+              }
               </div>
-              <div style={{ fontSize: 15, marginTop: 4 }}>
+              {/* <div style={{ fontSize: 15, marginTop: 4 }}>
                 {routeSummary.instruction}
+              </div> */}
+              <div
+                style={{
+                  fontSize: 15,
+                  marginTop: 4,
+                  fontWeight: 700,
+                  lineHeight: 1.35,
+                }}
+              >
+                {
+                  routeSummary
+                    .routeSteps?.[
+                      routeSummary.currentStep+1
+                    ]?.instruction
+                }
               </div>
             </div>
           </div>
@@ -618,7 +639,13 @@ export default function IndoorMapUI({
                   {routeSummary.duration}
                 </div>
                 <div style={{ marginTop: 6, color: "#667085", fontSize: 12 }}>
-                  Step {routeSummary.currentStep} of {routeSummary.totalSteps}
+                  {/* Step {routeSummary.currentStep} of {routeSummary.totalSteps} */}
+                  Step {
+  Math.min(
+    routeSummary.currentStep + 1,
+    routeSummary.totalSteps
+  )
+} of {routeSummary.totalSteps}
                 </div>
               </div>
               <button

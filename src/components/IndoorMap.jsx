@@ -211,23 +211,87 @@ const buildRouteSteps = (points) => {
       icon: maneuver.icon,
       instruction: maneuver.instruction,
       distance: formatDistance(distanceM),
-      pointIndex: startIndex,
+      // pointIndex: startIndex,
+       pointIndex:
+    stepIndex === 0
+      ? 0
+      : Math.max(
+          0,
+          endIndex - 1
+        ),
     };
   });
 
-  const lastSegment = segments[segments.length - 1];
-  if (lastSegment) {
-    lastSegment.icon = "◎";
-    lastSegment.instruction = "Arrive at destination";
-    lastSegment.pointIndex = points.length - 1;
-    lastSegment.distance = formatDistance(
-      metersBetween(
-        points[points.length - 2]?.coord,
-        points[points.length - 1]?.coord
-      ) || getRouteDistanceM(points.slice(-2))
-    );
-  }
+//   const lastSegment = segments[segments.length - 1];
+//   if (lastSegment) {
+//     lastSegment.icon = "◎";
+//     lastSegment.instruction = "Arrive at destination";
+//     // lastSegment.pointIndex = points.length - 1;
+//     lastSegment.pointIndex = Math.max(
+//   0,
+//   points.length - 2
+// );
+//     lastSegment.distance = formatDistance(
+//       metersBetween(
+//         points[points.length - 2]?.coord,
+//         points[points.length - 1]?.coord
+//       ) || getRouteDistanceM(points.slice(-2))
+//     );
+//   }
+const lastSegment =
+  segments[segments.length - 1];
 
+if (
+  lastSegment &&
+  points.length >= 2
+) {
+  lastSegment.icon = "↑";
+  lastSegment.instruction =
+    "Continue straight to destination";
+
+  // lastSegment.distance =
+  //   formatDistance(
+  //     metersBetween(
+  //       points[
+  //         points.length - 2
+  //       ]?.coord,
+  //       points[
+  //         points.length - 1
+  //       ]?.coord
+  //     )
+  //   );
+const finalDistance =
+  metersBetween(
+    points[
+      points.length - 2
+    ]?.coord,
+    points[
+      points.length - 1
+    ]?.coord
+  );
+
+// FORCE SMALL DISTANCE
+lastSegment.distance =
+  finalDistance <= 8
+    ? "Few metres"
+    : finalDistance <= 15
+    ? "10 m"
+    : formatDistance(finalDistance);
+  lastSegment.pointIndex =
+    Math.max(
+      0,
+      points.length - 2
+    );
+
+  segments.push({
+    icon: "◎",
+    instruction:
+      "Arrive at destination",
+    distance: "0 m",
+    pointIndex:
+      points.length - 1,
+  });
+}
   return segments;
 };
 
@@ -329,12 +393,33 @@ export default function IndoorMap() {
     () => getRouteDistanceM(routePoints),
     [routeRevision]
   );
+  // const previewStepIndex = Math.min(
+  //   routeStepIndex,
+  //   Math.max(routeSteps.length - 1, 0)
+  // );
   const previewStepIndex = Math.min(
-    routeStepIndex,
-    Math.max(routeSteps.length - 1, 0)
-  );
+  routeStepIndex,
+  Math.max(
+    routeSteps.length - 1,
+    0
+  )
+);
+  // const previewStepIndex =
+  // showStepsPreview
+  //   ? Math.max(
+  //       0,
+  //       routeStepIndex - 1
+  //     )
+  //   : routeStepIndex;
   const activePreviewStep = routeSteps[previewStepIndex];
-  const nextPreviewPoint = routePoints[activePreviewStep?.pointIndex + 1];
+  // const nextPreviewPoint = routePoints[activePreviewStep?.pointIndex + 1];
+  const nextPreviewPoint =
+  routePoints[
+    Math.min(
+      (activePreviewStep?.pointIndex || 0) + 1,
+      routePoints.length - 1
+    )
+  ];
   const stepDistanceM = activePreviewStep
     ? metersBetween(
         routePoints[activePreviewStep.pointIndex]?.coord,
@@ -352,17 +437,40 @@ export default function IndoorMap() {
     hasRoute: routePoints.length > 1,
     distance: formatDistance(routeDistanceM),
     duration: formatMinutes(routeDistanceM),
-    stepDistance: formatDistance(stepDistanceM || routeDistanceM),
-    instruction: getStepInstruction(routeSteps, previewStepIndex),
+    // stepDistance: formatDistance(stepDistanceM || routeDistanceM),
+    stepDistance:
+  routeSteps[
+    Math.min(
+      routeStepIndex + 1,
+      routeSteps.length - 1
+    )
+  ]?.distance ||
+  formatDistance(routeDistanceM),
+    // instruction: getStepInstruction(routeSteps, previewStepIndex),
+    instruction:
+  routeSteps[
+    Math.min(
+      routeStepIndex + 1,
+      routeSteps.length - 1
+    )
+  ]?.instruction ||
+  "Start navigation",
     destinationName: destQuery || "Destination",
     destinationArea: getFloorLabel(destFloorRef.current ?? floor),
     routeSteps,
     showStepsPreview,
-    currentStep: routeSteps.length ? previewStepIndex + 1 : 0,
-    totalSteps: routeSteps.length,
+    // currentStep: routeSteps.length ? previewStepIndex  : 0,
+    currentStep:
+  routeSteps.length
+    ? routeStepIndex
+    : 0,
+    totalSteps: routeSteps.length -1 ,
     isNavigating,
     canGoBack: previewStepIndex > 0,
-    canGoNext: previewStepIndex < routeSteps.length - 1,
+    // canGoNext: previewStepIndex < routeSteps.length - 2,
+    canGoNext:
+  previewStepIndex <
+  routeSteps.length - 2,
   };
 
   const handleFloorSwitch = (newFloor) => {
@@ -375,7 +483,25 @@ export default function IndoorMap() {
 
   const moveToRouteStep = (nextIndex) => {
     if (!routeSteps.length) return;
-    const boundedIndex = Math.max(0, Math.min(nextIndex, routeSteps.length - 1));
+    // const boundedIndex = Math.max(0, Math.min(nextIndex, routeSteps.length - 1));
+  //   const maxNavigationIndex =
+  // Math.max(
+  //   0,
+  //   routeSteps.length - 2
+  // );
+const maxNavigationIndex =
+  Math.max(
+    0,
+    routeSteps.length - 1
+  );
+const boundedIndex =
+  Math.max(
+    0,
+    Math.min(
+      nextIndex,
+      maxNavigationIndex
+    )
+  );
     setRouteStepIndex(boundedIndex);
   };
 
@@ -386,7 +512,12 @@ export default function IndoorMap() {
       navigationMarkerRef.current = null;
     }
     setIsNavigating(false);
-    setRouteStepIndex(0);
+    // setRouteStepIndex(0);
+    setRouteStepIndex(
+      routeSteps.length > 1
+        ? 1
+        : 0
+    );
     setShowStepsPreview(true);
   };
 
@@ -394,13 +525,46 @@ export default function IndoorMap() {
     setShowStepsPreview(false);
   };
 
-  const startNavigation = () => {
-    if (!routeSteps.length) return;
-    setShowStepsPreview(false);
-    setIsNavigating(true);
-    setRouteStepIndex(0);
-  };
+  // const startNavigation = () => {
+  //   if (!routeSteps.length) return;
+  //   setShowStepsPreview(false);
+  //   setIsNavigating(true);
+  //   setRouteStepIndex(0);
+  // };
+const startNavigation = () => {
+  if (!routeSteps.length) return;
 
+  setShowStepsPreview(false);
+  setIsNavigating(true);
+
+  // SKIP START STEP
+  // const firstRealStep =
+  //   routeSteps.length > 2
+  //     ? 1
+  //     : 0;
+const firstRealStep = 0;
+  setRouteStepIndex(
+    firstRealStep
+  );
+
+  // AUTO SWITCH FLOOR TO STEP
+  const step =
+    routeSteps[firstRealStep];
+
+  const point =
+    routePoints[
+      step?.pointIndex || 0
+    ];
+
+  if (
+    point &&
+    point.floor !== floor
+  ) {
+    handleFloorSwitch(
+      point.floor
+    );
+  }
+};
   const endNavigation = () => {
     setIsNavigating(false);
     setShowStepsPreview(false);
