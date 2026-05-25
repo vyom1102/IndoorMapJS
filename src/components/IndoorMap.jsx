@@ -564,6 +564,13 @@ const firstRealStep = 0;
       point.floor
     );
   }
+
+  if (
+    point &&
+    point.floor === floor
+  ) {
+    setFloorRenderReady(true);
+  }
 };
   const endNavigation = () => {
     setIsNavigating(false);
