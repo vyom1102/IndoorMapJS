@@ -14,7 +14,8 @@ export const useMap = () => {
       style: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
       center: [77.20451273263606,28.543355986530234],
       zoom:16,
-      pitch:45
+      pitch: 60,
+      bearing: 0,
     });
     map.addControl(new maplibregl.NavigationControl());
     map.on("load", ()=> setReady(true));

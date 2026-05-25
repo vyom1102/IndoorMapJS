@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef } from "react";
-import maplibregl from "maplibre-gl";
 import { useMap } from "./useMap";
 import { getGeojsonData } from "../services/api";
 import { loadVenueData } from "../services/venueApi";
@@ -7,6 +6,10 @@ import { splitFeatures } from "../utils/splitFeatures";
 import { fetchNearbyNodes } from "../services/FetchGraphAPI";
 import { dijkstra, findClosestNode } from "../utils/RouteFunctions";
 import { getPoleOfInaccessibility, getPolygonCenter } from "../components/indoorMap/geometry";
+import {
+  removeRouteLayers,
+  renderRouteForFloor as drawRouteForFloor,
+} from "../utils/routeDisplay";
 
 export function useIndoorMap() {
   const { mapRef, containerRef, ready } = useMap();
@@ -28,6 +31,7 @@ export function useIndoorMap() {
   const graphRef = useRef(null);
   const sourceFloorRef = useRef(null);
   const destFloorRef = useRef(null);
+  const floorRef = useRef(0);
 
   const venueName = "DelhiMetro";
   const defaultCenter = venueData
@@ -92,7 +96,12 @@ export function useIndoorMap() {
         id.includes(`-${targetFloor}`) ||
         id.includes(`_${targetFloor}_`) ||
         id.startsWith("animal") ||
-        id.startsWith("route") ||
+        id.startsWith("route-arrows") ||
+        id.startsWith("route-traveled") ||
+        id.startsWith("route-remaining") ||
+        id.startsWith("route-point") ||
+        id.startsWith("route-line") ||
+        id === "route" ||
         id.startsWith("boundary") ||
         id.startsWith("section") ||
         id.startsWith("subsection") ||
@@ -116,7 +125,12 @@ export function useIndoorMap() {
         id.includes(`-${targetFloor}`) ||
         id.includes(`_${targetFloor}_`) ||
         id.startsWith("animal") ||
-        id.startsWith("route") ||
+        id.startsWith("route-arrows") ||
+        id.startsWith("route-traveled") ||
+        id.startsWith("route-remaining") ||
+        id.startsWith("route-point") ||
+        id.startsWith("route-line") ||
+        id === "route" ||
         id.startsWith("boundary") ||
         id.startsWith("section") ||
         id.startsWith("subsection") ||
@@ -134,71 +148,31 @@ export function useIndoorMap() {
     });
   };
 
-  // Switch floor function
+  useEffect(() => {
+    floorRef.current = floor;
+  }, [floor]);
+
+  // Switch floor: remove previous floor layers immediately, then re-render new floor
   const switchFloor = async (newFloor) => {
-    if (newFloor === floor) return;
+    if (newFloor === floorRef.current) return;
+    const previousFloor = floorRef.current;
+    cleanupFloor(previousFloor);
+    floorRef.current = newFloor;
     setFloor(newFloor);
   };
 
-  // Render route for current floor
-  const renderRouteForFloor = (pathCoords, targetFloor) => {
+  const renderRouteForFloor = (pathCoords, targetFloor, options) => {
     const map = mapRef.current;
-    if (!map || !pathCoords?.length) return;
+    if (!map) return;
+    drawRouteForFloor(map, pathCoords, targetFloor, options);
+  };
 
-    const currentFloorCoords = pathCoords
-      .filter((p) => p.floor === targetFloor)
-      .map((p) => p.coord);
-
-    if (!currentFloorCoords.length) {
-      if (map.getLayer("route-line")) {
-        map.removeLayer("route-line");
-      }
-      if (map.getSource("route")) {
-        map.removeSource("route");
-      }
-      return;
-    }
-
-    const routeGeo = {
-      type: "Feature",
-      geometry: {
-        type: "LineString",
-        coordinates: currentFloorCoords,
-      },
-    };
-
-    if (map.getSource("route")) {
-      map.getSource("route").setData(routeGeo);
-    } else {
-      map.addSource("route", {
-        type: "geojson",
-        data: routeGeo,
-      });
-
-      map.addLayer({
-        id: "route-line",
-        type: "line",
-        source: "route",
-        layout: {
-          "line-cap": "round",
-          "line-join": "round",
-        },
-        paint: {
-          "line-color": "#007AFF",
-          "line-width": 5,
-        },
-      });
-    }
-
-    if (currentFloorCoords.length > 1) {
-      const bounds = new maplibregl.LngLatBounds();
-      currentFloorCoords.forEach((c) => bounds.extend(c));
-      map.fitBounds(bounds, {
-        padding: 80,
-        duration: 800,
-        maxZoom: 20,
-      });
-    }
+  const clearRoute = () => {
+    const map = mapRef.current;
+    routePathRef.current = [];
+    graphRef.current = null;
+    removeRouteLayers(map);
+    setRouteRevision((revision) => revision + 1);
   };
 
   // Update marker visibility based on floor
@@ -322,6 +296,13 @@ export function useIndoorMap() {
     routePathRef.current = coords;
     graphRef.current = graph;
     setRouteRevision((revision) => revision + 1);
+
+    const routeStartFloor = sourceFloorRef.current ?? floorRef.current;
+    if (routeStartFloor !== floorRef.current) {
+      cleanupFloor(floorRef.current);
+      floorRef.current = routeStartFloor;
+      setFloor(routeStartFloor);
+    }
   };
 
   // Update marker visibility when floor changes
@@ -359,6 +340,7 @@ export function useIndoorMap() {
     cleanupFloor,
     switchFloor,
     renderRouteForFloor,
+    clearRoute,
     updateMarkerVisibilityForFloor,
     getFeatureRoutingCoordinates,
     handleRouting,

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import * as THREE from "three";
 
@@ -46,9 +46,242 @@ import {
   selectDest,
 } from "../utils/SelectionHandlers";
 import IndoorMapUI from "./IndoorMapUI";
+import {
+  followCameraBehindPointer,
+  removeRouteLayers,
+  updateNavigationRoute,
+} from "../utils/routeDisplay";
+
+const metersBetween = (a, b) => {
+  if (!a || !b) return 0;
+  const earthRadiusM = 6371000;
+  const toRad = (value) => (value * Math.PI) / 180;
+  const dLat = toRad(b[1] - a[1]);
+  const dLng = toRad(b[0] - a[0]);
+  const lat1 = toRad(a[1]);
+  const lat2 = toRad(b[1]);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * earthRadiusM * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+};
+
+const getRouteDistanceM = (points) =>
+  points.reduce((total, point, index) => {
+    if (index === 0) return total;
+    return total + metersBetween(points[index - 1]?.coord, point.coord);
+  }, 0);
+
+const formatDistance = (meters) => {
+  if (!Number.isFinite(meters) || meters <= 0) return "0 m";
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+};
+
+const formatMinutes = (meters) => {
+  if (!Number.isFinite(meters) || meters <= 0) return "0 minutes";
+  return `${Math.max(1, Math.round(meters / 80))} minutes`;
+};
+
+const getFloorLabel = (value) => {
+  if (value < 0) return `B${Math.abs(value)}`;
+  if (value === 0) return "G";
+  return `F${value}`;
+};
+
+const toRad = (value) => (value * Math.PI) / 180;
+
+const bearing = (from, to) => {
+  if (!from || !to) return 0;
+  const lat1 = toRad(from[1]);
+  const lat2 = toRad(to[1]);
+  const dLng = toRad(to[0] - from[0]);
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x =
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  return (Math.atan2(y, x) * 180) / Math.PI;
+};
+
+const angleDiff = (fromDeg, toDeg) => {
+  let delta = ((toDeg - fromDeg + 540) % 360) - 180;
+  return delta;
+};
+
+const getManeuver = (delta, floorChange) => {
+  if (floorChange) {
+    return {
+      icon: "⇅",
+      instruction: `Continue to ${floorChange}`,
+    };
+  }
+  if (Math.abs(delta) < 25) {
+    return {
+      icon: "↑",
+      instruction: "Continue straight and follow the path.",
+    };
+  }
+  if (delta <= -70) {
+    return { icon: "↰", instruction: "Turn left and follow the path." };
+  }
+  if (delta < -25) {
+    return {
+      icon: "↖",
+      instruction: "Make a slight left and follow the path.",
+    };
+  }
+  if (delta >= 70) {
+    return { icon: "↱", instruction: "Turn right and follow the path." };
+  }
+  return {
+    icon: "↗",
+    instruction: "Make a slight right and follow the path.",
+  };
+};
+
+const buildRouteSteps = (points) => {
+  if (!points.length) return [];
+  if (points.length === 1) {
+    return [
+      {
+        icon: "◎",
+        instruction: "Arrive at destination",
+        distance: "0 m",
+        pointIndex: 0,
+      },
+    ];
+  }
+
+  const breakpoints = [0];
+
+  for (let index = 2; index < points.length - 1; index += 1) {
+    const floorChange = points[index].floor !== points[index - 1].floor;
+    if (floorChange) {
+      breakpoints.push(index);
+      continue;
+    }
+
+    const prevBearing = bearing(
+      points[index - 2].coord,
+      points[index - 1].coord
+    );
+    const nextBearing = bearing(points[index - 1].coord, points[index].coord);
+    const turnDelta = angleDiff(prevBearing, nextBearing);
+    if (Math.abs(turnDelta) >= 35) {
+      breakpoints.push(index);
+    }
+  }
+
+  breakpoints.push(points.length - 1);
+
+  const uniqueBreakpoints = breakpoints.filter(
+    (value, index, array) => index === 0 || value !== array[index - 1]
+  );
+
+  const segments = uniqueBreakpoints.map((endIndex, stepIndex) => {
+    const startIndex =
+      stepIndex === 0 ? 0 : uniqueBreakpoints[stepIndex - 1];
+    const segmentPoints = points.slice(startIndex, endIndex + 1);
+    const distanceM = getRouteDistanceM(segmentPoints);
+    const floorChange =
+      stepIndex > 0 &&
+      points[startIndex].floor !== points[endIndex].floor
+        ? getFloorLabel(points[endIndex].floor)
+        : null;
+
+    let maneuver = { icon: "↑", instruction: "Continue straight and follow the path." };
+    if (stepIndex === 0) {
+      maneuver = { icon: "●", instruction: "Start on the route" };
+    } else if (floorChange) {
+      maneuver = getManeuver(0, floorChange);
+    } else if (endIndex >= 2) {
+      const prevBearing = bearing(
+        points[endIndex - 2].coord,
+        points[endIndex - 1].coord
+      );
+      const nextBearing = bearing(
+        points[endIndex - 1].coord,
+        points[endIndex].coord
+      );
+      maneuver = getManeuver(angleDiff(prevBearing, nextBearing), null);
+    }
+
+    return {
+      icon: maneuver.icon,
+      instruction: maneuver.instruction,
+      distance: formatDistance(distanceM),
+      pointIndex: startIndex,
+    };
+  });
+
+  const lastSegment = segments[segments.length - 1];
+  if (lastSegment) {
+    lastSegment.icon = "◎";
+    lastSegment.instruction = "Arrive at destination";
+    lastSegment.pointIndex = points.length - 1;
+    lastSegment.distance = formatDistance(
+      metersBetween(
+        points[points.length - 2]?.coord,
+        points[points.length - 1]?.coord
+      ) || getRouteDistanceM(points.slice(-2))
+    );
+  }
+
+  return segments;
+};
+
+const getStepInstruction = (steps, stepIndex) => {
+  const step = steps[stepIndex];
+  return step?.instruction || "Start navigation";
+};
+
+const isValidCoord = (coord) =>
+  Array.isArray(coord) &&
+  coord.length >= 2 &&
+  Number.isFinite(coord[0]) &&
+  Number.isFinite(coord[1]);
+
+const getPointForStep = (points, steps, stepIndex) => {
+  const step = steps[stepIndex];
+  const point = points[step?.pointIndex ?? 0] ?? points[0];
+  if (!point || !isValidCoord(point.coord)) return null;
+  return point;
+};
+
+const createNavigationMarker = () => {
+  const marker = document.createElement("div");
+  marker.style.width = "28px";
+  marker.style.height = "28px";
+  marker.style.borderRadius = "50%";
+  marker.style.background = "#2f57d6";
+  marker.style.border = "4px solid #fff";
+  marker.style.boxShadow = "0 10px 24px rgba(47,87,214,0.35)";
+  marker.style.position = "relative";
+
+  const pulse = document.createElement("div");
+  pulse.style.position = "absolute";
+  pulse.style.inset = "-10px";
+  pulse.style.borderRadius = "50%";
+  pulse.style.background = "rgba(47,87,214,0.18)";
+  pulse.style.animation = "routePulse 1.4s ease-out infinite";
+  marker.appendChild(pulse);
+
+  return marker;
+};
 
 export default function IndoorMap() {
   const renderGenerationRef = useRef(0);
+  const navigationMarkerRef = useRef(null);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [showStepsPreview, setShowStepsPreview] = useState(false);
+  const [routeStepIndex, setRouteStepIndex] = useState(0);
+  const [floorRenderReady, setFloorRenderReady] = useState(true);
+  const navStateRef = useRef({
+    isNavigating: false,
+    showStepsPreview: false,
+    routeStepIndex: 0,
+    routeSteps: [],
+  });
 
   const {
     mapRef,
@@ -78,10 +311,213 @@ export default function IndoorMap() {
     destFloorRef,
     switchFloor,
     renderRouteForFloor,
+    clearRoute,
     updateMarkerVisibilityForFloor,
     getFeatureRoutingCoordinates,
     handleRouting,
   } = useIndoorMap();
+
+  const routePoints = routePathRef.current || [];
+  const routeSteps = useMemo(
+    () => buildRouteSteps(routePoints),
+    [routeRevision]
+  );
+  const routeDistanceM = useMemo(
+    () => getRouteDistanceM(routePoints),
+    [routeRevision]
+  );
+  const previewStepIndex = Math.min(
+    routeStepIndex,
+    Math.max(routeSteps.length - 1, 0)
+  );
+  const activePreviewStep = routeSteps[previewStepIndex];
+  const nextPreviewPoint = routePoints[activePreviewStep?.pointIndex + 1];
+  const stepDistanceM = activePreviewStep
+    ? metersBetween(
+        routePoints[activePreviewStep.pointIndex]?.coord,
+        nextPreviewPoint?.coord
+      )
+    : 0;
+  navStateRef.current = {
+    isNavigating,
+    showStepsPreview,
+    routeStepIndex,
+    routeSteps,
+  };
+
+  const routeSummary = {
+    hasRoute: routePoints.length > 1,
+    distance: formatDistance(routeDistanceM),
+    duration: formatMinutes(routeDistanceM),
+    stepDistance: formatDistance(stepDistanceM || routeDistanceM),
+    instruction: getStepInstruction(routeSteps, previewStepIndex),
+    destinationName: destQuery || "Destination",
+    destinationArea: getFloorLabel(destFloorRef.current ?? floor),
+    routeSteps,
+    showStepsPreview,
+    currentStep: routeSteps.length ? previewStepIndex + 1 : 0,
+    totalSteps: routeSteps.length,
+    isNavigating,
+    canGoBack: previewStepIndex > 0,
+    canGoNext: previewStepIndex < routeSteps.length - 1,
+  };
+
+  const handleFloorSwitch = (newFloor) => {
+    if (newFloor === floor) return;
+    const map = mapRef.current;
+    setFloorRenderReady(false);
+    removeRouteLayers(map);
+    switchFloor(newFloor);
+  };
+
+  const moveToRouteStep = (nextIndex) => {
+    if (!routeSteps.length) return;
+    const boundedIndex = Math.max(0, Math.min(nextIndex, routeSteps.length - 1));
+    setRouteStepIndex(boundedIndex);
+  };
+
+  const openStepsPreview = () => {
+    if (!routeSteps.length) return;
+    if (navigationMarkerRef.current) {
+      navigationMarkerRef.current.remove();
+      navigationMarkerRef.current = null;
+    }
+    setIsNavigating(false);
+    setRouteStepIndex(0);
+    setShowStepsPreview(true);
+  };
+
+  const closeStepsPreview = () => {
+    setShowStepsPreview(false);
+  };
+
+  const startNavigation = () => {
+    if (!routeSteps.length) return;
+    setShowStepsPreview(false);
+    setIsNavigating(true);
+    setRouteStepIndex(0);
+  };
+
+  const endNavigation = () => {
+    setIsNavigating(false);
+    setShowStepsPreview(false);
+    setRouteStepIndex(0);
+    if (navigationMarkerRef.current) {
+      navigationMarkerRef.current.remove();
+      navigationMarkerRef.current = null;
+    }
+  };
+
+  const clearDirections = () => {
+    endNavigation();
+    setShowStepsPreview(false);
+    clearRoute();
+    sourceRef.current?.remove();
+    destRef.current?.remove();
+    sourceRef.current = null;
+    destRef.current = null;
+    sourceFloorRef.current = null;
+    destFloorRef.current = null;
+    setSourceQuery("");
+    setDestQuery("");
+    setSourceResults([]);
+    setDestResults([]);
+  };
+
+  useEffect(() => {
+    if (!routePoints.length) {
+      endNavigation();
+      return;
+    }
+    setRouteStepIndex((index) =>
+      Math.min(index, Math.max(routeSteps.length - 1, 0))
+    );
+  }, [routeRevision, routeSteps.length]);
+
+  // Align floor with the active navigation/step point before drawing route
+  useEffect(() => {
+    if (!showStepsPreview && !isNavigating) return;
+
+    const pathPoints = routePathRef.current || [];
+    const point = getPointForStep(pathPoints, routeSteps, routeStepIndex);
+    if (!point) return;
+
+    if (point.floor !== floor) {
+      handleFloorSwitch(point.floor);
+    }
+  }, [
+    showStepsPreview,
+    isNavigating,
+    routeStepIndex,
+    floor,
+    routeSteps,
+    routeRevision,
+  ]);
+
+  // Draw route, marker, and camera once floor matches the active step
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || (!isNavigating && !showStepsPreview) || !floorRenderReady) return;
+
+    const pathPoints = routePathRef.current || [];
+    const activeGlobalIndex = routeSteps[routeStepIndex]?.pointIndex ?? 0;
+    const point = getPointForStep(pathPoints, routeSteps, routeStepIndex);
+    if (!point || point.floor !== floor) return;
+
+    const routeDrawn = updateNavigationRoute(
+      map,
+      pathPoints,
+      floor,
+      activeGlobalIndex
+    );
+    if (!routeDrawn) {
+      renderRouteForFloor(pathPoints, floor, {
+        navigationMode: false,
+      });
+    }
+
+    if (isNavigating) {
+      if (!navigationMarkerRef.current) {
+        navigationMarkerRef.current = new maplibregl.Marker({
+          element: createNavigationMarker(),
+          anchor: "center",
+        })
+          .setLngLat(point.coord)
+          .addTo(map);
+      } else {
+        navigationMarkerRef.current.setLngLat(point.coord);
+      }
+    } else if (navigationMarkerRef.current) {
+      navigationMarkerRef.current.remove();
+      navigationMarkerRef.current = null;
+    }
+
+    followCameraBehindPointer(map, pathPoints, activeGlobalIndex, floor);
+  }, [
+    floor,
+    floorRenderReady,
+    isNavigating,
+    showStepsPreview,
+    routeRevision,
+    routeStepIndex,
+    routeSteps,
+  ]);
+
+  // Restore planned route view when leaving steps/navigation preview
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || showStepsPreview || isNavigating || !floorRenderReady) return;
+    const pathPoints = routePathRef.current || [];
+    if (!pathPoints.length) return;
+
+    renderRouteForFloor(pathPoints, floor, { navigationMode: false });
+  }, [
+    showStepsPreview,
+    isNavigating,
+    floor,
+    floorRenderReady,
+    routeRevision,
+  ]);
 
   // Main rendering effect
   useEffect(() => {
@@ -95,22 +531,23 @@ export default function IndoorMap() {
     const isCurrentRender = () =>
       !cancelled && renderGenerationRef.current === renderGeneration;
 
+    setFloorRenderReady(false);
+
     const render = async () => {
       if (!isCurrentRender()) return;
 
       const renderCurrentRoute = () => {
-        if (!isCurrentRender()) return;
-        if (routePathRef.current?.length) {
-          renderRouteForFloor(routePathRef.current, floor);
-        }
+        if (!isCurrentRender() || !routePathRef.current?.length) return;
+        const navState = navStateRef.current;
+        const inPreview = navState.isNavigating || navState.showStepsPreview;
+        renderRouteForFloor(routePathRef.current, floor, {
+          navigationMode: inPreview,
+          activeGlobalIndex:
+            navState.routeSteps[navState.routeStepIndex]?.pointIndex ?? 0,
+        });
       };
 
-      if (map.getLayer("route-line")) {
-        map.removeLayer("route-line");
-      }
-      if (map.getSource("route")) {
-        map.removeSource("route");
-      }
+      removeRouteLayers(map);
 
       // Remove all custom 3D layers
       const allFloors = venueData?.floors || [floor];
@@ -744,8 +1181,29 @@ export default function IndoorMap() {
         );
       }
 
+      if (!isCurrentRender()) return;
+
+      setFloorRenderReady(true);
       renderCurrentRoute();
       updateMarkerVisibilityForFloor(floor);
+
+      const navState = navStateRef.current;
+      if (
+        (navState.isNavigating || navState.showStepsPreview) &&
+        routePathRef.current?.length
+      ) {
+        const pathPoints = routePathRef.current;
+        const point = getPointForStep(
+          pathPoints,
+          navState.routeSteps,
+          navState.routeStepIndex
+        );
+        if (point?.floor === floor) {
+          const activeGlobalIndex =
+            navState.routeSteps[navState.routeStepIndex]?.pointIndex ?? 0;
+          updateNavigationRoute(map, pathPoints, floor, activeGlobalIndex);
+        }
+      }
     };
 
     if (!map.isStyleLoaded()) {
@@ -848,7 +1306,15 @@ export default function IndoorMap() {
         onDestSearch={handleDestSearch}
         onSourceSelect={handleSelectSource}
         onDestSelect={handleSelectDest}
-        onFloorSwitch={switchFloor}
+        onFloorSwitch={handleFloorSwitch}
+        routeSummary={routeSummary}
+        onOpenSteps={openStepsPreview}
+        onCloseSteps={closeStepsPreview}
+        onStartNavigation={startNavigation}
+        onEndNavigation={endNavigation}
+        onClearDirections={clearDirections}
+        onPreviousStep={() => moveToRouteStep(routeStepIndex - 1)}
+        onNextStep={() => moveToRouteStep(routeStepIndex + 1)}
         containerRef={containerRef}
       />
     </div>
