@@ -22,7 +22,7 @@ export const useMap = () => {
       maxZoom:24,
       minZoom: 13,
     });
-    map.addControl(new maplibregl.NavigationControl());
+    // map.addControl(new maplibregl.NavigationControl());
     map.on("load", ()=> setReady(true));
     mapRef.current = map;
   },[]);

@@ -9,6 +9,18 @@ const resultPanelStyle = {
   overflowY: "auto",
 };
 
+// Mobile-specific result panel style
+const getResultPanelStyle = () => {
+  if (typeof window !== "undefined" && window.innerWidth <= 768) {
+    return {
+      ...resultPanelStyle,
+      maxHeight: 150,
+      marginTop: 4,
+    };
+  }
+  return resultPanelStyle;
+};
+
 const searchInputStyle = {
   width: "100%",
   height: 44,
@@ -50,14 +62,14 @@ function SearchResults({ results, onSelect }) {
   if (!results.length) return null;
 
   return (
-    <div style={resultPanelStyle}>
+    <div style={getResultPanelStyle()}>
       {results.map((item, i) => (
         <button
           key={`${item.matchedText}-${i}`}
           onClick={() => onSelect(item)}
           style={{
             width: "100%",
-            padding: "13px 14px",
+            padding: "10px 12px",
             cursor: "pointer",
             border: "none",
             borderBottom:
@@ -65,9 +77,10 @@ function SearchResults({ results, onSelect }) {
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            gap: 12,
+            gap: 10,
             background: "#fff",
             textAlign: "left",
+            fontSize: typeof window !== "undefined" && window.innerWidth <= 768 ? "12px" : "14px",
           }}
         >
           <span style={{ flex: 1, minWidth: 0 }}>
@@ -126,19 +139,7 @@ function SearchResults({ results, onSelect }) {
 
 function RouteStepsPanel({ routeSummary, onCloseSteps, onStartNavigation }) {
   return (
-    <div
-      style={{
-        position: "absolute",
-        top: 18,
-        left: 18,
-        bottom: 18,
-        zIndex: 24,
-        width: 380,
-        maxWidth: "calc(100vw - 36px)",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <div className="route-steps-panel-container">
       <div
         style={{
           flex: 1,
@@ -403,6 +404,212 @@ export default function IndoorMapUI({
             0% { transform: scale(0.8); opacity: 0.9; }
             100% { transform: scale(1.9); opacity: 0; }
           }
+
+          /* Desktop styles */
+          .directions-panel-container {
+            position: absolute;
+            top: 18px;
+            left: 18px;
+            z-index: 20;
+            width: 360px;
+            max-width: calc(100vw - 36px);
+          }
+
+          .navigation-panel-container {
+            position: absolute;
+            top: 18px;
+            left: 18px;
+            z-index: 22;
+            width: 360px;
+            max-width: calc(100vw - 36px);
+          }
+
+          .route-steps-panel-container {
+            position: absolute;
+            top: 18px;
+            left: 18px;
+            bottom: 18px;
+            z-index: 24;
+            width: 380px;
+            max-width: calc(100vw - 36px);
+            display: flex;
+            flex-direction: column;
+          }
+
+          .floor-selector-container {
+            position: absolute;
+            top: 18px;
+            right: 18px;
+            z-index: 18;
+            display: grid;
+            gap: 8px;
+          }
+
+          /* Tablet and mobile (≤768px) */
+          @media (max-width: 768px) {
+            .directions-panel-container {
+              top: 8px !important;
+              left: 8px !important;
+              right: 8px !important;
+              width: auto !important;
+              max-width: none !important;
+            }
+
+            .navigation-panel-container {
+              top: 8px !important;
+              left: 8px !important;
+              right: 8px !important;
+              width: auto !important;
+              max-width: none !important;
+            }
+
+            .route-steps-panel-container {
+              top: 8px !important;
+              left: 8px !important;
+              right: 8px !important;
+              bottom: 8px !important;
+              width: auto !important;
+              max-width: none !important;
+            }
+
+            .floor-selector-container {
+              bottom: 8px !important;
+              right: 8px !important;
+              top: auto !important;
+              gap: 4px !important;
+              padding-bottom: 100px !important;
+            }
+
+            .floor-selector-container > div {
+              padding: 3px !important;
+              gap: 2px !important;
+            }
+
+            .floor-selector-container button {
+              height: 28px !important;
+              min-width: 60px !important;
+              font-size: 12px !important;
+              padding: 0 8px !important;
+            }
+
+            .directions-panel-container > div {
+              border-radius: 6px !important;
+            }
+
+            .directions-panel-container [style*="padding"] {
+              padding: 12px 12px 10px !important;
+            }
+
+            .directions-panel-container h2 {
+              font-size: 18px !important;
+              margin: 0 0 12px !important;
+            }
+
+            .directions-panel-container input {
+              height: 40px !important;
+              font-size: 13px !important;
+              padding: 0 10px !important;
+            }
+
+            .search-input-container {
+              gap: 8px !important;
+            }
+
+            .navigation-panel-container > div:first-child {
+              padding: 16px 16px !important;
+              gap: 12px !important;
+            }
+
+            .navigation-panel-container > div:first-child > div:first-child {
+              font-size: 40px !important;
+            }
+
+            .navigation-panel-container > div:first-child > div:last-child > div:first-child {
+              font-size: 22px !important;
+            }
+
+            .navigation-panel-container > div:first-child > div:last-child > div:last-child {
+              font-size: 13px !important;
+            }
+
+            .route-steps-panel-container > div {
+              border-radius: 8px !important;
+            }
+
+            .route-steps-panel-container h2 {
+              font-size: 18px !important;
+            }
+
+            .route-steps-panel-container > div > div:nth-child(2) {
+              padding: 12px 12px !important;
+            }
+
+            .route-steps-panel-container > div > div:nth-child(3) {
+              padding: 8px 0 8px !important;
+            }
+
+            .route-steps-panel-container > div > div:nth-child(3) > div {
+              padding: 10px 12px !important;
+              gap: 8px !important;
+            }
+
+            .route-steps-panel-container > div > div:nth-child(3) > div > div:nth-child(2) {
+              width: 36px !important;
+              height: 36px !important;
+              font-size: 18px !important;
+            }
+
+            .route-steps-panel-container > div > div:nth-child(3) > div > div:nth-child(4) {
+              font-size: 11px !important;
+            }
+          }
+
+          /* Small mobile (≤480px) */
+          @media (max-width: 480px) {
+            .directions-panel-container {
+              top: 6px !important;
+              left: 6px !important;
+              right: 6px !important;
+              width: auto !important;
+              max-width: none !important;
+            }
+
+            .navigation-panel-container {
+              top: 6px !important;
+              left: 6px !important;
+              right: 6px !important;
+              width: auto !important;
+              max-width: none !important;
+            }
+
+            .route-steps-panel-container {
+              top: 6px !important;
+              left: 6px !important;
+              right: 6px !important;
+              bottom: 6px !important;
+              width: auto !important;
+              max-width: none !important;
+            }
+
+            .floor-selector-container {
+              bottom: 6px !important;
+              right: 6px !important;
+              gap: 3px !important;
+              padding-bottom: 80px !important;
+            }
+
+            .floor-selector-container > div {
+              padding: 2px !important;
+              gap: 1px !important;
+            }
+
+            .floor-selector-container button {
+              height: 24px !important;
+              min-width: 50px !important;
+              font-size: 11px !important;
+              padding: 0 6px !important;
+            }
+          }
         `}
       </style>
 
@@ -417,16 +624,7 @@ export default function IndoorMapUI({
       )}
 
       {!isNavigating && !showStepsPreview && (
-        <div
-          style={{
-            position: "absolute",
-            top: 18,
-            left: 18,
-            zIndex: 20,
-            width: 360,
-            maxWidth: "calc(100vw - 36px)",
-          }}
-        >
+        <div className="directions-panel-container">
           <div
             style={{
               background: "#fff",
@@ -449,24 +647,28 @@ export default function IndoorMapUI({
                 Directions
               </h2>
 
-              <div style={{ display: "grid", gap: 10 }}>
-                <input
-                  aria-label="Source"
-                  placeholder="Choose starting point"
-                  value={sourceQuery}
-                  onChange={(e) => onSourceSearch(e.target.value)}
-                  style={searchInputStyle}
-                />
-                <SearchResults results={sourceResults} onSelect={onSourceSelect} />
+              <div className="search-input-container" style={{ display: "grid", gap: 10 }}>
+                <div>
+                  <input
+                    aria-label="Source"
+                    placeholder="Choose starting point"
+                    value={sourceQuery}
+                    onChange={(e) => onSourceSearch(e.target.value)}
+                    style={searchInputStyle}
+                  />
+                  <SearchResults results={sourceResults} onSelect={onSourceSelect} />
+                </div>
 
-                <input
-                  aria-label="Destination"
-                  placeholder="Choose destination"
-                  value={destQuery}
-                  onChange={(e) => onDestSearch(e.target.value)}
-                  style={searchInputStyle}
-                />
-                <SearchResults results={destResults} onSelect={onDestSelect} />
+                <div>
+                  <input
+                    aria-label="Destination"
+                    placeholder="Choose destination"
+                    value={destQuery}
+                    onChange={(e) => onDestSearch(e.target.value)}
+                    style={searchInputStyle}
+                  />
+                  <SearchResults results={destResults} onSelect={onDestSelect} />
+                </div>
               </div>
 
               <div style={{ marginTop: 14, textAlign: "right" }}>
@@ -550,16 +752,7 @@ export default function IndoorMapUI({
       )}
 
       {isNavigating && (
-        <div
-          style={{
-            position: "absolute",
-            top: 18,
-            left: 18,
-            zIndex: 22,
-            width: 360,
-            maxWidth: "calc(100vw - 36px)",
-          }}
-        >
+        <div className="navigation-panel-container">
           <div
             style={{
               background: "#3152b9",
@@ -694,16 +887,7 @@ export default function IndoorMapUI({
       )}
 
       {venueData?.floors?.length > 1 && (
-        <div
-          style={{
-            position: "absolute",
-            top: 18,
-            right: 18,
-            zIndex: 18,
-            display: "grid",
-            gap: 8,
-          }}
-        >
+        <div className="floor-selector-container">
           <div
             style={{
               background: "#fff",
