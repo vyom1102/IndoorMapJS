@@ -20,6 +20,7 @@ export const useMap = () => {
       pitch: 60,
       bearing: 0,
       maxZoom:24,
+      minZoom: 13,
     });
     map.addControl(new maplibregl.NavigationControl());
     map.on("load", ()=> setReady(true));

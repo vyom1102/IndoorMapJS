@@ -85,7 +85,7 @@ export function useIndoorMap(venueName = "DelhiMetro") {
       }
       const firstFloor = data.floors?.[0] || 0;
       floorRef.current = firstFloor;
-      setFloor(firstFloor);
+      setFloor(0);
     };
 
     loadVenue();
