@@ -1,3 +1,26 @@
+// export const getPolygonCenter = (geometry) => {
+//   const ring =
+//     geometry?.type === "Polygon"
+//       ? geometry.coordinates?.[0]
+//       : geometry?.type === "MultiPolygon"
+//       ? geometry.coordinates?.[0]?.[0]
+//       : null;
+
+//   if (!ring?.length) return null;
+
+//   let sumLng = 0;
+//   let sumLat = 0;
+//   let count = 0;
+//   for (const point of ring) {
+//     if (!Array.isArray(point) || point.length < 2) continue;
+//     sumLng += point[0];
+//     sumLat += point[1];
+//     count += 1;
+//   }
+
+//   if (!count) return null;
+//   return [sumLng / count, sumLat / count];
+// };
 export const getPolygonCenter = (geometry) => {
   const ring =
     geometry?.type === "Polygon"
@@ -8,20 +31,33 @@ export const getPolygonCenter = (geometry) => {
 
   if (!ring?.length) return null;
 
+  let points = ring;
+
+  // Skip duplicated closing point
+  if (
+    ring.length > 1 &&
+    ring[0][0] === ring[ring.length - 1][0] &&
+    ring[0][1] === ring[ring.length - 1][1]
+  ) {
+    points = ring.slice(0, -1);
+  }
+
   let sumLng = 0;
   let sumLat = 0;
   let count = 0;
-  for (const point of ring) {
+
+  for (const point of points) {
     if (!Array.isArray(point) || point.length < 2) continue;
+
     sumLng += point[0];
     sumLat += point[1];
     count += 1;
   }
 
   if (!count) return null;
+
   return [sumLng / count, sumLat / count];
 };
-
 export const getPolygonMinDimensionMeters = (geometry) => {
   const ring =
     geometry?.type === "Polygon"
@@ -154,8 +190,76 @@ export const getFeatureAnchorCoordinates = (feature) => {
   return null;
 };
 
+// export const getPoleOfInaccessibility = (geometry) => {
+//   const ring =
+//     geometry?.type === "Polygon"
+//       ? geometry.coordinates?.[0]
+//       : geometry?.type === "MultiPolygon"
+//       ? geometry.coordinates?.[0]?.[0]
+//       : null;
+
+//   if (!ring?.length) return null;
+
+//   let minLng = Infinity, minLat = Infinity;
+//   let maxLng = -Infinity, maxLat = -Infinity;
+//   for (const [lng, lat] of ring) {
+//     minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng);
+//     minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
+//   }
+
+//   const width = maxLng - minLng;
+//   const height = maxLat - minLat;
+//   const cellSize = Math.min(width, height) / 16;
+//   if (cellSize === 0) return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
+
+//   const pointInPolygon = (x, y, poly) => {
+//     let inside = false;
+//     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+//       const [xi, yi] = poly[i];
+//       const [xj, yj] = poly[j];
+//       if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+//         inside = !inside;
+//       }
+//     }
+//     return inside;
+//   };
+
+//   const pointToSegmentDist = (px, py, ax, ay, bx, by) => {
+//     const dx = bx - ax, dy = by - ay;
+//     const lenSq = dx * dx + dy * dy;
+//     let t = lenSq > 0 ? ((px - ax) * dx + (py - ay) * dy) / lenSq : 0;
+//     t = Math.max(0, Math.min(1, t));
+//     const nearX = ax + t * dx, nearY = ay + t * dy;
+//     return Math.sqrt((px - nearX) ** 2 + (py - nearY) ** 2);
+//   };
+
+//   const distToPolygon = (x, y, poly) => {
+//     let minDist = Infinity;
+//     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+//       const d = pointToSegmentDist(x, y, poly[j][0], poly[j][1], poly[i][0], poly[i][1]);
+//       if (d < minDist) minDist = d;
+//     }
+//     return pointInPolygon(x, y, poly) ? minDist : -minDist;
+//   };
+
+//   let bestDist = -Infinity;
+//   let bestPoint = [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
+
+//   for (let x = minLng + cellSize / 2; x < maxLng; x += cellSize) {
+//     for (let y = minLat + cellSize / 2; y < maxLat; y += cellSize) {
+//       const d = distToPolygon(x, y, ring);
+//       if (d > bestDist) {
+//         bestDist = d;
+//         bestPoint = [x, y];
+//       }
+//     }
+//   }
+
+//   return bestPoint;
+// };
+
 export const getPoleOfInaccessibility = (geometry) => {
-  const ring =
+  let ring =
     geometry?.type === "Polygon"
       ? geometry.coordinates?.[0]
       : geometry?.type === "MultiPolygon"
@@ -164,60 +268,26 @@ export const getPoleOfInaccessibility = (geometry) => {
 
   if (!ring?.length) return null;
 
-  let minLng = Infinity, minLat = Infinity;
-  let maxLng = -Infinity, maxLat = -Infinity;
+  // Remove duplicated closing point
+  if (
+    ring.length > 1 &&
+    ring[0][0] === ring[ring.length - 1][0] &&
+    ring[0][1] === ring[ring.length - 1][1]
+  ) {
+    ring = ring.slice(0, -1);
+  }
+
+  // SIMPLE VISUAL CENTER
+  let sumLng = 0;
+  let sumLat = 0;
+
   for (const [lng, lat] of ring) {
-    minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng);
-    minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
+    sumLng += lng;
+    sumLat += lat;
   }
 
-  const width = maxLng - minLng;
-  const height = maxLat - minLat;
-  const cellSize = Math.min(width, height) / 16;
-  if (cellSize === 0) return [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
-
-  const pointInPolygon = (x, y, poly) => {
-    let inside = false;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const [xi, yi] = poly[i];
-      const [xj, yj] = poly[j];
-      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
-        inside = !inside;
-      }
-    }
-    return inside;
-  };
-
-  const pointToSegmentDist = (px, py, ax, ay, bx, by) => {
-    const dx = bx - ax, dy = by - ay;
-    const lenSq = dx * dx + dy * dy;
-    let t = lenSq > 0 ? ((px - ax) * dx + (py - ay) * dy) / lenSq : 0;
-    t = Math.max(0, Math.min(1, t));
-    const nearX = ax + t * dx, nearY = ay + t * dy;
-    return Math.sqrt((px - nearX) ** 2 + (py - nearY) ** 2);
-  };
-
-  const distToPolygon = (x, y, poly) => {
-    let minDist = Infinity;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const d = pointToSegmentDist(x, y, poly[j][0], poly[j][1], poly[i][0], poly[i][1]);
-      if (d < minDist) minDist = d;
-    }
-    return pointInPolygon(x, y, poly) ? minDist : -minDist;
-  };
-
-  let bestDist = -Infinity;
-  let bestPoint = [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
-
-  for (let x = minLng + cellSize / 2; x < maxLng; x += cellSize) {
-    for (let y = minLat + cellSize / 2; y < maxLat; y += cellSize) {
-      const d = distToPolygon(x, y, ring);
-      if (d > bestDist) {
-        bestDist = d;
-        bestPoint = [x, y];
-      }
-    }
-  }
-
-  return bestPoint;
+  return [
+    sumLng / ring.length,
+    sumLat / ring.length,
+  ];
 };
