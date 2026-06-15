@@ -990,6 +990,105 @@ const firstRealStep = 0;
         },
       });
 
+      // Add highlight layer for tapped polygons
+      map.addSource(`floor_${floor}_highlight`, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: `floor_${floor}_highlight`,
+        type: "fill-extrusion",
+        source: `floor_${floor}_highlight`,
+        minzoom: 16,
+        paint: {
+          "fill-extrusion-color": "#4a4a4a",
+          "fill-extrusion-height": [
+            "case",
+            ["==", ["downcase", ["get", "type"]], "wall"],
+            [
+              "+",
+              ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0],
+              [
+                "case",
+                [
+                  "all",
+                  ["has", "height"],
+                  ["!=", ["get", "height"], "undefined"],
+                  [">", ["to-number", ["get", "height"]], 0],
+                ],
+                ["to-number", ["get", "height"]],
+                3,
+              ],
+            ],
+            ["==", ["get", "type"], "Booth"],
+            ["+", ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0], 2],
+            [
+              "any",
+              ["==", ["downcase", ["get", "type"]], "lift"],
+              [
+                "in",
+                ["downcase", ["get", "type"]],
+                [
+                  "literal",
+                  [
+                    "cafeteria",
+                    "piller",
+                    "counter",
+                    "security check",
+                    "male washroom",
+                    "female washroom",
+                    "unisex washroom",
+                    "drinking water",
+                    "room",
+                    "accessible washroom",
+                  ],
+                ],
+              ],
+            ],
+            [
+              "+",
+              ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0],
+              [
+                "case",
+                [
+                  "all",
+                  ["has", "height"],
+                  ["!=", ["get", "height"], "undefined"],
+                  [">", ["to-number", ["get", "height"]], 0],
+                ],
+                ["to-number", ["get", "height"]],
+                2,
+              ],
+            ],
+            [
+              "in",
+              ["downcase", ["get", "type"]],
+              ["literal", ["green area", "green area | pots"]],
+            ],
+            ["+", ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0], 0.2],
+            [
+              "all",
+              ["has", "height"],
+              ["!=", ["get", "height"], "undefined"],
+              [">", ["to-number", ["get", "height"]], 0],
+            ],
+            [
+              "+",
+              ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0],
+              ["to-number", ["get", "height"]],
+            ],
+            ["case", ["has", "baseHeight"], ["to-number", ["get", "baseHeight"]], 0],
+          ],
+          "fill-extrusion-base": [
+            "case",
+            ["has", "baseHeight"],
+            ["to-number", ["get", "baseHeight"]],
+            0,
+          ],
+          "fill-extrusion-opacity": 0.7,
+        },
+      });
+
       // ESCALATORS
       const escalatorPlacementsByModel = buildEscalatorPlacements(floorFeatures);
       Array.from(escalatorPlacementsByModel.entries()).forEach(([modelUrl, placements], index) => {
@@ -1471,37 +1570,37 @@ const firstRealStep = 0;
         floor: props.floor ?? floor,
         feature: features[0],
       };
-      // const coords =
-      //   features[0].geometry?.coordinates?.[0]?.[0] ||
-      //   features[0].geometry?.coordinates;
-      // if (!coords) return;
 
-      // // Extract a human-readable name from whatever property is available
-      // const name =
-      //   props.name ||
-      //   props.title ||
-      //   props.label ||
-      //   props.animalName ||
-      //   props.type ||
-      //   "Unknown";
-
-      // // Build a synthetic search-result item so SelectionHandlers can consume it
-      // const item = {
-      //   matchedText: name,
-      //   actualName: name,
-      //   floorLabel: getFloorLabel(props.floor ?? floor),
-      //   coord: coords,
-      //   floor: props.floor ?? floor,
-      //   feature: features[0],
-      // };
-
-      setTappedFeature({ name, item });
+      // Update highlight - store the tapped feature in state
+      setTappedFeature({ name, item, feature: features[0] });
       map.flyTo({ center: coords, zoom: 20 });
     };
 
     map.on("click", onClick);
     return () => map.off("click", onClick);
   }, [ready, floor]);
+
+  // Update highlight layer when tapped feature changes
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+
+    if (tappedFeature?.feature?.geometry?.type === "Polygon") {
+      const highlightSource = map.getSource(`floor_${floor}_highlight`);
+      if (highlightSource) {
+        highlightSource.setData({
+          type: "FeatureCollection",
+          features: [tappedFeature.feature],
+        });
+      }
+    } else {
+      const highlightSource = map.getSource(`floor_${floor}_highlight`);
+      if (highlightSource) {
+        highlightSource.setData({ type: "FeatureCollection", features: [] });
+      }
+    }
+  }, [tappedFeature, floor, ready]);
+
   // Search handlers
   const handleSourceSearch = async (val) => {
     setSourceQuery(val);
@@ -1564,6 +1663,13 @@ const handleSetTappedAsDest = () => {
   };
 
   const handleCloseTappedPanel = () => {
+    const map = mapRef.current;
+    if (map) {
+      const highlightSource = map.getSource(`floor_${floor}_highlight`);
+      if (highlightSource) {
+        highlightSource.setData({ type: "FeatureCollection", features: [] });
+      }
+    }
     setTappedFeature(null);
   };
 
