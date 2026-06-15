@@ -290,19 +290,107 @@ export const buildExhibitorLogoPlanes = async (
   return planes;
 };
 
+// export const buildPointImagePlanes = async (
+//   imagedPoints,
+//   loadTexture,
+//   polygonLookup
+// ) => {
+//   const planes = [];
+
+//   for (const pointFeature of imagedPoints) {
+//     const p = pointFeature.properties || {};
+
+//     const type = String(p.type || p.polygonType || "").toLowerCase();
+
+//     if (!type.includes("cafeteria")) continue;
+
+//     const polygonIds = [
+//       ...(p.associatedPolygons || []),
+//       ...(pointFeature.associatedPolygons || []),
+//     ].map(String);
+
+//     if (!polygonIds.length) continue;
+
+//     let texture = null;
+
+//     const imageUrl = getImageFileUrl(p.imageFile);
+
+//     if (imageUrl) {
+//       texture = await loadTexture(imageUrl);
+//     }
+
+//     if (!texture) {
+//       texture = await createTextTexture(p.name || "Cafeteria");
+//     }
+
+//     if (!texture) continue;
+
+//     const aspect =
+//       texture?.image?.width && texture?.image?.height
+//         ? texture.image.width / texture.image.height
+//         : 2;
+
+//     for (const polyId of polygonIds) {
+//       const linkedPolygon = polygonLookup.get(polyId);
+
+//       if (!linkedPolygon) continue;
+
+//       const center =
+//         getPoleOfInaccessibility(linkedPolygon.geometry) ||
+//         getPolygonCenter(linkedPolygon.geometry);
+
+//       if (!center) continue;
+
+//       const { widthM, heightM } = getPolygonDimensionsMeters(
+//         linkedPolygon.geometry
+//       );
+
+//       const roofZ = getFeatureTopHeight(linkedPolygon.properties) + 0.06;
+
+//       const { scaleX, scaleY } = computePlaneScale(
+//         widthM,
+//         heightM,
+//         aspect,
+//         0.7
+//       );
+
+//       planes.push({
+//         center,
+//         texture,
+//         scaleX,
+//         scaleY,
+//         z: roofZ,
+//         rot: getPolygonRotationRad(linkedPolygon.geometry),
+//       });
+//     }
+//   }
+
+//   return planes;
+// };
 export const buildPointImagePlanes = async (
   imagedPoints,
   loadTexture,
   polygonLookup
 ) => {
   const planes = [];
+  const usedPolygonIds = new Set();
 
   for (const pointFeature of imagedPoints) {
     const p = pointFeature.properties || {};
 
-    const type = String(p.type || p.polygonType || "").toLowerCase();
+const type = String(
+  p.type || p.polygonType || ""
+).toLowerCase();
 
-    if (!type.includes("cafeteria")) continue;
+// Ignore washrooms only
+if (type.includes("washroom")) continue;
+
+// Keep cafeterias and rooms
+const shouldShow =
+  type.includes("room") ||
+  type.includes("cafeteria");
+
+if (!shouldShow) continue;
 
     const polygonIds = [
       ...(p.associatedPolygons || []),
@@ -320,7 +408,7 @@ export const buildPointImagePlanes = async (
     }
 
     if (!texture) {
-      texture = await createTextTexture(p.name || "Cafeteria");
+      texture = await createTextTexture(p.name || "Room");
     }
 
     if (!texture) continue;
@@ -331,9 +419,14 @@ export const buildPointImagePlanes = async (
         : 2;
 
     for (const polyId of polygonIds) {
+      // Skip duplicate labels for same polygon
+      if (usedPolygonIds.has(polyId)) continue;
+
       const linkedPolygon = polygonLookup.get(polyId);
 
       if (!linkedPolygon) continue;
+
+      usedPolygonIds.add(polyId);
 
       const center =
         getPoleOfInaccessibility(linkedPolygon.geometry) ||
@@ -345,7 +438,8 @@ export const buildPointImagePlanes = async (
         linkedPolygon.geometry
       );
 
-      const roofZ = getFeatureTopHeight(linkedPolygon.properties) + 0.06;
+      const roofZ =
+        getFeatureTopHeight(linkedPolygon.properties) + 0.06;
 
       const { scaleX, scaleY } = computePlaneScale(
         widthM,

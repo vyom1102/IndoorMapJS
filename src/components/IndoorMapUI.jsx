@@ -369,7 +369,127 @@ function RouteStepsPanel({ routeSummary, onCloseSteps, onStartNavigation }) {
     </div>
   );
 }
-
+function TappedObjectPanel({ name, onGetDirections, onClose }) {
+  return (
+    <div className="directions-panel-container">
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 8,
+          boxShadow: "0 18px 48px rgba(17, 24, 39, 0.18)",
+          border: "1px solid rgba(17, 24, 39, 0.08)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "16px 18px",
+            borderBottom: "1px solid #eef1f6",
+          }}
+        >
+          <div
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 10,
+              background: "#edf3ff",
+              color: "#2f57d6",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 20,
+              flexShrink: 0,
+            }}
+          >
+            ◉
+          </div>
+          <div
+            style={{
+              flex: 1,
+              fontSize: 16,
+              fontWeight: 800,
+              color: "#111827",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {name}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              width: 32,
+              height: 32,
+              border: "none",
+              borderRadius: 8,
+              background: "#f3f5f9",
+              color: "#6b7280",
+              fontSize: 18,
+              cursor: "pointer",
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            ✕
+          </button>
+        </div>
+        <div style={{ padding: "14px 18px 18px" }}>
+          <button
+            type="button"
+            onClick={onGetDirections}
+            style={{
+              width: "100%",
+              height: 42,
+              borderRadius: 8,
+              border: "none",
+              background: "#2f57d6",
+              color: "#fff",
+              fontWeight: 900,
+              fontSize: 14,
+              cursor: "pointer",
+              boxShadow: "0 10px 22px rgba(47, 87, 214, 0.28)",
+            }}
+          >
+            Get Directions
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+// export default function IndoorMapUI({
+//   sourceQuery,
+//   destQuery,
+//   sourceResults,
+//   destResults,
+//   venueData,
+//   floor,
+//   onSourceSearch,
+//   onDestSearch,
+//   onSourceSelect,
+//   onDestSelect,
+//   onFloorSwitch,
+//   routeSummary,
+//   onOpenSteps,
+//   onCloseSteps,
+//   onStartNavigation,
+//   onEndNavigation,
+//   onClearDirections,
+//   onPreviousStep,
+//   onNextStep,
+//   containerRef,
+// }) {
+//   const hasRoute = routeSummary?.hasRoute;
+//   const isNavigating = routeSummary?.isNavigating;
+//   const showStepsPreview = routeSummary?.showStepsPreview;
 export default function IndoorMapUI({
   sourceQuery,
   destQuery,
@@ -391,11 +511,14 @@ export default function IndoorMapUI({
   onPreviousStep,
   onNextStep,
   containerRef,
+  tappedFeature,
+  onSetTappedAsDest,
+  onCloseTappedPanel,
 }) {
   const hasRoute = routeSummary?.hasRoute;
   const isNavigating = routeSummary?.isNavigating;
   const showStepsPreview = routeSummary?.showStepsPreview;
-
+  const hasTappedFeature = !!tappedFeature && !isNavigating && !showStepsPreview;
   return (
     <>
       <style>
@@ -623,7 +746,14 @@ export default function IndoorMapUI({
         />
       )}
 
-      {!isNavigating && !showStepsPreview && (
+{hasTappedFeature && (
+        <TappedObjectPanel
+          name={tappedFeature.name}
+          onGetDirections={onSetTappedAsDest}
+          onClose={onCloseTappedPanel}
+        />
+      )}
+      {!isNavigating && !showStepsPreview && !hasTappedFeature && (
         <div className="directions-panel-container">
           <div
             style={{

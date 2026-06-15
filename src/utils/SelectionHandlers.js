@@ -341,7 +341,6 @@ export const selectDest = async (
     "FEATURE COORDS:",
     coords
   );
-
   if (!coords) {
     console.log(
       "NO ROUTING COORDS"
@@ -366,17 +365,49 @@ export const selectDest = async (
   }
 
   if (!destRef.current) {
-    destRef.current =
-      new maplibregl.Marker({
-        color: "red",
-      })
-        .setLngLat(coords)
-        .addTo(map);
-  } else {
-    destRef.current.setLngLat(
-      coords
-    );
+let lngLat;
 
+if (Array.isArray(coords)) {
+  lngLat = [Number(coords[0]), Number(coords[1])];
+}
+else if (typeof coords === "string") {
+  const parsed = JSON.parse(coords);
+
+  lngLat = [
+    Number(parsed[0]),
+    Number(parsed[1]),
+  ];
+}
+else {
+  lngLat = [
+    Number(coords.lng ?? coords.lon),
+    Number(coords.lat),
+  ];
+}
+destRef.current =new maplibregl.Marker({ color: "red" })
+  .setLngLat(lngLat)
+  .addTo(map);
+  } else {
+let lngLat;
+
+if (Array.isArray(coords)) {
+  lngLat = [Number(coords[0]), Number(coords[1])];
+}
+else if (typeof coords === "string") {
+  const parsed = JSON.parse(coords);
+
+  lngLat = [
+    Number(parsed[0]),
+    Number(parsed[1]),
+  ];
+}
+else {
+  lngLat = [
+    Number(coords.lng ?? coords.lon),
+    Number(coords.lat),
+  ];
+}
+destRef.current.setLngLat(lngLat);
     updateMarkerVisibilityForFloor(
       targetFloor
     );

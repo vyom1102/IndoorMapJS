@@ -342,6 +342,7 @@ export default function IndoorMap() {
   const [showStepsPreview, setShowStepsPreview] = useState(false);
   const [routeStepIndex, setRouteStepIndex] = useState(0);
   const [floorRenderReady, setFloorRenderReady] = useState(true);
+  const [tappedFeature, setTappedFeature] = useState(null);
   const navStateRef = useRef({
     isNavigating: false,
     showStepsPreview: false,
@@ -939,6 +940,7 @@ const firstRealStep = 0;
                     "female washroom",
                     "unisex washroom",
                     "drinking water",
+                    "room",
                     "accessible washroom",
                   ],
                 ],
@@ -1395,7 +1397,31 @@ const firstRealStep = 0;
   }, [geo, floor, ready, routeRevision]);
 
   // Click handler
-  useEffect(() => {
+  // useEffect(() => {
+  //   const map = mapRef.current;
+  //   if (!map || !ready) return;
+
+  //   const onClick = (e) => {
+  //     const features = map.queryRenderedFeatures(e.point);
+  //     if (!features.length) return;
+  //     const props = features[0].properties || {};
+  //     if (
+  //       props.type === "Boundary" ||
+  //       props.type === "centroid" ||
+  //       props.type === "Waypoint"
+  //     )
+  //       return;
+  //     const coords =
+  //       features[0].geometry?.coordinates?.[0]?.[0] ||
+  //       features[0].geometry?.coordinates;
+  //     if (!coords) return;
+  //     map.flyTo({ center: coords, zoom: 20 });
+  //   };
+
+  //   map.on("click", onClick);
+  //   return () => map.off("click", onClick);
+  // }, [ready]);
+ useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
 
@@ -1409,17 +1435,73 @@ const firstRealStep = 0;
         props.type === "Waypoint"
       )
         return;
-      const coords =
-        features[0].geometry?.coordinates?.[0]?.[0] ||
-        features[0].geometry?.coordinates;
-      if (!coords) return;
+        const geom = features[0].geometry;
+      let coords;
+      if (geom?.type === "Point") {
+        coords = geom.coordinates; // [lng, lat]
+      } else if (geom?.type === "Polygon") {
+        // centroid of first ring
+        const ring = geom.coordinates?.[0] || [];
+        const lng = ring.reduce((s, c) => s + c[0], 0) / ring.length;
+        const lat = ring.reduce((s, c) => s + c[1], 0) / ring.length;
+        coords = [lng, lat];
+      } else if (geom?.type === "MultiPolygon") {
+        const ring = geom.coordinates?.[0]?.[0] || [];
+        const lng = ring.reduce((s, c) => s + c[0], 0) / ring.length;
+        const lat = ring.reduce((s, c) => s + c[1], 0) / ring.length;
+        coords = [lng, lat];
+      } else {
+        coords = geom?.coordinates;
+      }
+      if (!coords || !Number.isFinite(coords[0])) return;
+
+      const name =
+        props.name ||
+        props.title ||
+        props.label ||
+        props.animalName ||
+        props.type ||
+        "Unknown";
+
+      const item = {
+        matchedText: name,
+        actualName: name,
+        floorLabel: getFloorLabel(props.floor ?? floor),
+        coord: coords,           // guaranteed [lng, lat]
+        floor: props.floor ?? floor,
+        feature: features[0],
+      };
+      // const coords =
+      //   features[0].geometry?.coordinates?.[0]?.[0] ||
+      //   features[0].geometry?.coordinates;
+      // if (!coords) return;
+
+      // // Extract a human-readable name from whatever property is available
+      // const name =
+      //   props.name ||
+      //   props.title ||
+      //   props.label ||
+      //   props.animalName ||
+      //   props.type ||
+      //   "Unknown";
+
+      // // Build a synthetic search-result item so SelectionHandlers can consume it
+      // const item = {
+      //   matchedText: name,
+      //   actualName: name,
+      //   floorLabel: getFloorLabel(props.floor ?? floor),
+      //   coord: coords,
+      //   floor: props.floor ?? floor,
+      //   feature: features[0],
+      // };
+
+      setTappedFeature({ name, item });
       map.flyTo({ center: coords, zoom: 20 });
     };
 
     map.on("click", onClick);
     return () => map.off("click", onClick);
-  }, [ready]);
-
+  }, [ready, floor]);
   // Search handlers
   const handleSourceSearch = async (val) => {
     setSourceQuery(val);
@@ -1473,6 +1555,18 @@ const handleSelectDest = (item) => {
   );
 };
   
+const handleSetTappedAsDest = () => {
+    console.log("Tapped to set destination:", tappedFeature);
+    
+    if (!tappedFeature) return;
+    handleSelectDest(tappedFeature.item);
+    setTappedFeature(null);
+  };
+
+  const handleCloseTappedPanel = () => {
+    setTappedFeature(null);
+  };
+
   return (
     <div style={{ height: "100vh", width: "100%", position: "relative" }}>
       <IndoorMapUI
@@ -1496,7 +1590,36 @@ const handleSelectDest = (item) => {
         onPreviousStep={() => moveToRouteStep(routeStepIndex - 1)}
         onNextStep={() => moveToRouteStep(routeStepIndex + 1)}
         containerRef={containerRef}
+        tappedFeature={tappedFeature}
+        onSetTappedAsDest={handleSetTappedAsDest}
+        onCloseTappedPanel={handleCloseTappedPanel}
       />
     </div>
   );
+  // return (
+  //   <div style={{ height: "100vh", width: "100%", position: "relative" }}>
+  //     <IndoorMapUI
+  //       sourceQuery={sourceQuery}
+  //       destQuery={destQuery}
+  //       sourceResults={sourceResults}
+  //       destResults={destResults}
+  //       venueData={venueData}
+  //       floor={floor}
+  //       onSourceSearch={handleSourceSearch}
+  //       onDestSearch={handleDestSearch}
+  //       onSourceSelect={handleSelectSource}
+  //       onDestSelect={handleSelectDest}
+  //       onFloorSwitch={handleFloorSwitch}
+  //       routeSummary={routeSummary}
+  //       onOpenSteps={openStepsPreview}
+  //       onCloseSteps={closeStepsPreview}
+  //       onStartNavigation={startNavigation}
+  //       onEndNavigation={endNavigation}
+  //       onClearDirections={clearDirections}
+  //       onPreviousStep={() => moveToRouteStep(routeStepIndex - 1)}
+  //       onNextStep={() => moveToRouteStep(routeStepIndex + 1)}
+  //       containerRef={containerRef}
+  //     />
+  //   </div>
+  // );
 }
