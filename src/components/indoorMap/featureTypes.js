@@ -50,3 +50,18 @@ export const getEscalatorModelUrl = (feature) => {
 export const getSittingAreaModelUrl = (feature) => {
   return getObjectFileUrl(feature?.properties?.objectFile) || SITTING_AREA_MODEL_URL;
 };
+
+export const isGreenAreaFeature = (feature) => {
+  const type = String(
+    feature.properties?.type || ""
+  ).toLowerCase();
+
+  return (
+    type === "green area" ||
+    type === "green area | pots"
+  );
+};
+
+export const getTreeModelUrl = () => {
+  return "/assets/models/tree.glb";
+};

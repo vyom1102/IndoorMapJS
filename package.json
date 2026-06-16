@@ -12,6 +12,10 @@
   },
   "dependencies": {
     "@google/model-viewer": "^3.4.0",
+    "@turf/bbox": "^7.3.5",
+    "@turf/boolean-point-in-polygon": "^7.3.5",
+    "@turf/helpers": "^7.3.5",
+    "@turf/turf": "^7.3.5",
     "axios": "^1.6.0",
     "graphlib": "^2.1.8",
     "maplibre-gl": "^3.6.2",

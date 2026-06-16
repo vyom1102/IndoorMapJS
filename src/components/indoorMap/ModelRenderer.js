@@ -5,6 +5,8 @@ import {
   isSittingAreaPolygonFeature,
   isEscalatorFeature,
   isSittingAreaFeature,
+   getTreeModelUrl,
+  isGreenAreaFeature,
 } from "./featureTypes";
 import {
   getPoleOfInaccessibility,
@@ -23,8 +25,15 @@ import {
   SITTING_AREA_MODEL_ROTATION_OFFSET_RAD,
   SITTING_AREA_MODEL_UPRIGHT_ROLL_RAD,
   SITTING_AREA_MODEL_WIDTH_M,
+  TREE_MODEL_HEIGHT_M,
+  TREE_MODEL_LENGTH_M,
+  TREE_MODEL_ROTATION_OFFSET_RAD,
+  TREE_MODEL_UPRIGHT_ROLL_RAD,
+  TREE_MODEL_WIDTH_M,
 } from "./constants";
-
+import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
+import { point } from "@turf/helpers";
+import bbox from "@turf/bbox";
 export const buildEscalatorPlacements = (floorFeatures) => {
   const escalatorPointByPolygonId = new Map();
   const escalatorPlacementsByModel = new Map();
@@ -147,4 +156,66 @@ export const buildSittingAreaPlacements = (floorFeatures) => {
   }
 
   return sittingAreaPlacementsByModel;
+};
+const generateTreePoints = (polygonFeature, count = 5) => {
+  const points = [];
+  const bounds = bbox(polygonFeature);
+
+  let attempts = 0;
+
+  while (points.length < count && attempts < count * 20) {
+    attempts++;
+
+    const lng =
+      bounds[0] + Math.random() * (bounds[2] - bounds[0]);
+
+    const lat =
+      bounds[1] + Math.random() * (bounds[3] - bounds[1]);
+
+    const p = point([lng, lat]);
+
+    if (booleanPointInPolygon(p, polygonFeature)) {
+      points.push([lng, lat]);
+    }
+  }
+
+  return points;
+};
+export const buildTreePlacements = (floorFeatures) => {
+  const treePlacementsByModel = new Map();
+
+  const greenAreas = floorFeatures.filter(isGreenAreaFeature);
+
+  for (const feature of greenAreas) {
+    const p = feature.properties || {};
+
+    const center =
+      (Array.isArray(p.centroid) ? p.centroid : null) ||
+      getPoleOfInaccessibility(feature.geometry) ||
+      getPolygonCenter(feature.geometry);
+
+    if (!center) continue;
+
+    const modelUrl = getTreeModelUrl();
+
+    const placements =
+      treePlacementsByModel.get(modelUrl) || [];
+
+    placements.push({
+      center,
+      z: getFeatureBaseHeight(p) + 0.02,
+      rot: 0,
+      footprint: {
+        lengthM: TREE_MODEL_LENGTH_M,
+        widthM: TREE_MODEL_WIDTH_M,
+        heightM: TREE_MODEL_HEIGHT_M,
+      },
+      rotationOffsetRad: TREE_MODEL_ROTATION_OFFSET_RAD,
+      uprightRollRad: TREE_MODEL_UPRIGHT_ROLL_RAD,
+    });
+
+    treePlacementsByModel.set(modelUrl, placements);
+  }
+
+  return treePlacementsByModel;
 };

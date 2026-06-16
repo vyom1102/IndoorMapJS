@@ -1,3 +1,4 @@
+
 const resultPanelStyle = {
   background: "#fff",
   borderRadius: 8,
@@ -57,6 +58,28 @@ const getFloorLabel = (value) => {
   if (value === 0) return "G";
   return `F${value}`;
 };
+
+
+function CategoryIcon({ category, size = 32, style = {} }) {
+  // const path = CATEGORY_ICON_PATHS[category.name];
+   const path = category.icon;   
+  if (path) {
+    return (
+      <img
+        src={path}
+        alt={category.label}
+        style={{
+          width: size,
+          height: size,
+          objectFit: "contain",
+          ...style,
+        }}
+      />
+    );
+  }
+    return <span style={{ fontSize: size * 0.75, lineHeight: 1, ...style }}>{path}</span>;
+
+}
 
 function SearchResults({ results, onSelect }) {
   if (!results.length) return null;
@@ -369,6 +392,7 @@ function RouteStepsPanel({ routeSummary, onCloseSteps, onStartNavigation }) {
     </div>
   );
 }
+
 function TappedObjectPanel({ name, onGetDirections, onClose }) {
   return (
     <div className="directions-panel-container">
@@ -465,36 +489,245 @@ function TappedObjectPanel({ name, onGetDirections, onClose }) {
     </div>
   );
 }
-// export default function IndoorMapUI({
-//   sourceQuery,
-//   destQuery,
-//   sourceResults,
-//   destResults,
-//   venueData,
-//   floor,
-//   onSourceSearch,
-//   onDestSearch,
-//   onSourceSelect,
-//   onDestSelect,
-//   onFloorSwitch,
-//   routeSummary,
-//   onOpenSteps,
-//   onCloseSteps,
-//   onStartNavigation,
-//   onEndNavigation,
-//   onClearDirections,
-//   onPreviousStep,
-//   onNextStep,
-//   containerRef,
-// }) {
-//   const hasRoute = routeSummary?.hasRoute;
-//   const isNavigating = routeSummary?.isNavigating;
-//   const showStepsPreview = routeSummary?.showStepsPreview;
+
+function CategoryFilterPanel({
+  categories,
+  selectedCategories,
+  onCategoryToggle,
+  onSearch,
+  destResults,
+  onDestSelect,
+  onClearFilter,
+}) {
+  const hasActiveFilter = selectedCategories.length > 0;
+  // When a filter is active, show the first selected category as the chip
+  const activeCategory = hasActiveFilter
+    ? categories.find((c) => c.name === selectedCategories[0])
+    : null;
+
+  return (
+    <div className="directions-panel-container">
+      <div
+        style={{
+          background: "#1a1a1a",
+          borderRadius: 12,
+          boxShadow: "0 18px 48px rgba(0, 0, 0, 0.3)",
+          border: "1px solid rgba(255, 255, 255, 0.1)",
+          overflow: "hidden",
+          padding: "18px",
+        }}
+      >
+        {/* Search input — always visible */}
+        <input
+          type="text"
+          placeholder="🔍 Search for a point of interest"
+          onChange={(e) => onSearch(e.target.value)}
+          style={{
+            width: "100%",
+            height: 48,
+            padding: "0 16px",
+            borderRadius: 10,
+            border: "1px solid rgba(255, 255, 255, 0.2)",
+            background: "rgba(255, 255, 255, 0.1)",
+            color: "#fff",
+            fontSize: 14,
+            outline: "none",
+            marginBottom: 16,
+            boxSizing: "border-box",
+          }}
+        />
+
+        {hasActiveFilter && activeCategory ? (
+          /* ── Active filter chip view ── */
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "10px 14px",
+              borderRadius: 10,
+              background: "rgba(47, 87, 214, 0.25)",
+              border: "1.5px solid #2f57d6",
+            }}
+          >
+            {/* Same icon as on the map */}
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 8,
+                background: "rgba(47, 87, 214, 0.35)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <CategoryIcon category={activeCategory} size={22} />
+            </div>
+
+            <span
+              style={{
+                flex: 1,
+                color: "#fff",
+                fontSize: 14,
+                fontWeight: 700,
+              }}
+            >
+              {activeCategory.label}
+            </span>
+
+            {/* Clear filter button */}
+            <button
+              onClick={onClearFilter}
+              aria-label="Clear filter"
+              style={{
+                width: 28,
+                height: 28,
+                border: "none",
+                borderRadius: 6,
+                background: "rgba(255,255,255,0.12)",
+                color: "rgba(255,255,255,0.8)",
+                fontSize: 16,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        ) : (
+          /* ── Category grid view ── */
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 12,
+              maxHeight: 320,
+              overflowY: "auto",
+              paddingRight: 4,
+            }}
+          >
+            {categories.map((cat) => {
+              const isSelected = selectedCategories.includes(cat.name);
+              return (
+                <button
+                  key={cat.name}
+                  onClick={() => onCategoryToggle(cat)}
+                  style={{
+                    padding: "12px 10px",
+                    borderRadius: 12,
+                    border: isSelected ? "2px solid #2f57d6" : "1px solid transparent",
+                    background: isSelected
+                      ? "rgba(47, 87, 214, 0.3)"
+                      : "rgba(255, 255, 255, 0.08)",
+                    color: isSelected ? "#fff" : "rgba(255, 255, 255, 0.7)",
+                    cursor: "pointer",
+                    textAlign: "center",
+                    transition: "all 0.2s ease",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {/* Real map icon instead of emoji */}
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 8,
+                      background: isSelected
+                        ? "rgba(47, 87, 214, 0.4)"
+                        : "rgba(255,255,255,0.1)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <CategoryIcon category={cat} size={22} />
+                  </div>
+                  <span style={{ lineHeight: 1.2, wordBreak: "break-word" }}>
+                    {cat.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Search results */}
+        {destResults && destResults.length > 0 && (
+          <div
+            style={{
+              marginTop: 16,
+              paddingTop: 16,
+              borderTop: "1px solid rgba(255, 255, 255, 0.1)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: "rgba(255, 255, 255, 0.5)",
+                marginBottom: 8,
+              }}
+            >
+              Search Results
+            </div>
+            <div style={{ display: "grid", gap: 6, maxHeight: 200, overflowY: "auto" }}>
+              {destResults.slice(0, 8).map((result, i) => (
+                <button
+                  key={`${result.matchedText}-${i}`}
+                  onClick={() => onDestSelect(result)}
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    background: "rgba(255, 255, 255, 0.05)",
+                    color: "#fff",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontSize: 13,
+                    transition: "all 0.2s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>{result.matchedText}</div>
+                  {result.actualName !== result.matchedText && (
+                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>
+                      {result.actualName}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>
+                    {result.floorLabel}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function IndoorMapUI({
   sourceQuery,
   destQuery,
   sourceResults,
   destResults,
+  destSelected,
   venueData,
   floor,
   onSourceSearch,
@@ -514,11 +747,16 @@ export default function IndoorMapUI({
   tappedFeature,
   onSetTappedAsDest,
   onCloseTappedPanel,
+  poiCategories,
+  selectedCategories,
+  onCategoryToggle,
+  onClearFilter,
 }) {
   const hasRoute = routeSummary?.hasRoute;
   const isNavigating = routeSummary?.isNavigating;
   const showStepsPreview = routeSummary?.showStepsPreview;
   const hasTappedFeature = !!tappedFeature && !isNavigating && !showStepsPreview;
+
   return (
     <>
       <style>
@@ -746,139 +984,152 @@ export default function IndoorMapUI({
         />
       )}
 
-{hasTappedFeature && (
+      {hasTappedFeature && (
         <TappedObjectPanel
           name={tappedFeature.name}
           onGetDirections={onSetTappedAsDest}
           onClose={onCloseTappedPanel}
         />
       )}
+
       {!isNavigating && !showStepsPreview && !hasTappedFeature && (
-        <div className="directions-panel-container">
-          <div
-            style={{
-              background: "#fff",
-              borderRadius: 8,
-              boxShadow: "0 18px 48px rgba(17, 24, 39, 0.18)",
-              border: "1px solid rgba(17, 24, 39, 0.08)",
-              overflow: "hidden",
-            }}
-          >
-            <div style={{ padding: "18px 18px 14px" }}>
-              <h2
-                style={{
-                  margin: "0 0 16px",
-                  fontSize: 22,
-                  lineHeight: 1.1,
-                  color: "#111827",
-                  fontWeight: 800,
-                }}
-              >
-                Directions
-              </h2>
-
-              <div className="search-input-container" style={{ display: "grid", gap: 10 }}>
-                <div>
-                  <input
-                    aria-label="Source"
-                    placeholder="Choose starting point"
-                    value={sourceQuery}
-                    onChange={(e) => onSourceSearch(e.target.value)}
-                    style={searchInputStyle}
-                  />
-                  <SearchResults results={sourceResults} onSelect={onSourceSelect} />
-                </div>
-
-                <div>
-                  <input
-                    aria-label="Destination"
-                    placeholder="Choose destination"
-                    value={destQuery}
-                    onChange={(e) => onDestSearch(e.target.value)}
-                    style={searchInputStyle}
-                  />
-                  <SearchResults results={destResults} onSelect={onDestSelect} />
-                </div>
-              </div>
-
-              <div style={{ marginTop: 14, textAlign: "right" }}>
-                <button
-                  type="button"
-                  onClick={onClearDirections}
+        destSelected ? (
+          <div className="directions-panel-container">
+            <div
+              style={{
+                background: "#fff",
+                borderRadius: 8,
+                boxShadow: "0 18px 48px rgba(17, 24, 39, 0.18)",
+                border: "1px solid rgba(17, 24, 39, 0.08)",
+                overflow: "hidden",
+              }}
+            >
+              <div style={{ padding: "18px 18px 14px" }}>
+                <h2
                   style={{
-                    border: "none",
-                    background: "transparent",
-                    color: "#dc534a",
-                    fontSize: 13,
-                    fontWeight: 800,
-                    cursor: "pointer",
-                  }}
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-
-            {hasRoute && (
-              <div
-                style={{
-                  borderTop: "1px solid #eef1f6",
-                  padding: "16px 18px 18px",
-                }}
-              >
-                <h3
-                  style={{
-                    margin: 0,
-                    fontSize: 24,
-                    lineHeight: 1.05,
+                    margin: "0 0 16px",
+                    fontSize: 22,
+                    lineHeight: 1.1,
                     color: "#111827",
-                    fontWeight: 900,
+                    fontWeight: 800,
                   }}
                 >
-                  {routeSummary.duration}
-                </h3>
-                <div style={{ color: "#667085", fontSize: 13, marginTop: 4 }}>
-                  {routeSummary.distance}
+                  Directions
+                </h2>
+
+                <div className="search-input-container" style={{ display: "grid", gap: 10 }}>
+                  <div>
+                    <input
+                      aria-label="Source"
+                      placeholder="Choose starting point"
+                      value={sourceQuery}
+                      onChange={(e) => onSourceSearch(e.target.value)}
+                      style={searchInputStyle}
+                    />
+                    <SearchResults results={sourceResults} onSelect={onSourceSelect} />
+                  </div>
+
+                  <div>
+                    <input
+                      aria-label="Destination"
+                      placeholder="Choose destination"
+                      value={destQuery}
+                      onChange={(e) => onDestSearch(e.target.value)}
+                      style={searchInputStyle}
+                    />
+                    <SearchResults results={destResults} onSelect={onDestSelect} />
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+
+                <div style={{ marginTop: 14, textAlign: "right" }}>
                   <button
                     type="button"
-                    onClick={onOpenSteps}
+                    onClick={onClearDirections}
                     style={{
-                      flex: 1,
-                      height: 42,
-                      borderRadius: 8,
-                      border: "1px solid #d9deeb",
-                      background: "#fff",
-                      color: "#1f2937",
+                      border: "none",
+                      background: "transparent",
+                      color: "#dc534a",
+                      fontSize: 13,
                       fontWeight: 800,
                       cursor: "pointer",
                     }}
                   >
-                    Steps
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onStartNavigation}
-                    style={{
-                      flex: 1,
-                      height: 42,
-                      borderRadius: 8,
-                      border: "none",
-                      background: "#2f57d6",
-                      color: "#fff",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                      boxShadow: "0 10px 22px rgba(47, 87, 214, 0.28)",
-                    }}
-                  >
-                    Start
+                    Clear
                   </button>
                 </div>
               </div>
-            )}
+
+              {hasRoute && (
+                <div
+                  style={{
+                    borderTop: "1px solid #eef1f6",
+                    padding: "16px 18px 18px",
+                  }}
+                >
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: 24,
+                      lineHeight: 1.05,
+                      color: "#111827",
+                      fontWeight: 900,
+                    }}
+                  >
+                    {routeSummary.duration}
+                  </h3>
+                  <div style={{ color: "#667085", fontSize: 13, marginTop: 4 }}>
+                    {routeSummary.distance}
+                  </div>
+                  <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+                    <button
+                      type="button"
+                      onClick={onOpenSteps}
+                      style={{
+                        flex: 1,
+                        height: 42,
+                        borderRadius: 8,
+                        border: "1px solid #d9deeb",
+                        background: "#fff",
+                        color: "#1f2937",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Steps
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onStartNavigation}
+                      style={{
+                        flex: 1,
+                        height: 42,
+                        borderRadius: 8,
+                        border: "none",
+                        background: "#2f57d6",
+                        color: "#fff",
+                        fontWeight: 900,
+                        cursor: "pointer",
+                        boxShadow: "0 10px 22px rgba(47, 87, 214, 0.28)",
+                      }}
+                    >
+                      Start
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        ) : (
+          <CategoryFilterPanel
+            categories={poiCategories}
+            selectedCategories={selectedCategories}
+            onCategoryToggle={onCategoryToggle}
+            onSearch={onDestSearch}
+            destResults={destResults}
+            onDestSelect={onDestSelect}
+            onClearFilter={onClearFilter}
+          />
+        )
       )}
 
       {isNavigating && (
@@ -896,22 +1147,12 @@ export default function IndoorMapUI({
             }}
           >
             <div style={{ fontSize: 52, lineHeight: 0.8 }}>
-              {routeSummary.routeSteps?.[routeSummary.currentStep +1 ]?.icon ||
-                "◎"}
+              {routeSummary.routeSteps?.[routeSummary.currentStep + 1]?.icon || "◎"}
             </div>
             <div>
               <div style={{ fontSize: 28, fontWeight: 900, lineHeight: 1 }}>
-                {/* {routeSummary.stepDistance} */}
-                {
-                routeSummary
-                  .routeSteps?.[
-                    routeSummary.currentStep +1
-                  ]?.distance
-              }
+                {routeSummary.routeSteps?.[routeSummary.currentStep + 1]?.distance}
               </div>
-              {/* <div style={{ fontSize: 15, marginTop: 4 }}>
-                {routeSummary.instruction}
-              </div> */}
               <div
                 style={{
                   fontSize: 15,
@@ -920,12 +1161,7 @@ export default function IndoorMapUI({
                   lineHeight: 1.35,
                 }}
               >
-                {
-                  routeSummary
-                    .routeSteps?.[
-                      routeSummary.currentStep+1
-                    ]?.instruction
-                }
+                {routeSummary.routeSteps?.[routeSummary.currentStep + 1]?.instruction}
               </div>
             </div>
           </div>
@@ -962,22 +1198,16 @@ export default function IndoorMapUI({
                   {routeSummary.duration}
                 </div>
                 <div style={{ marginTop: 6, color: "#667085", fontSize: 12 }}>
-                  {/* Step {routeSummary.currentStep} of {routeSummary.totalSteps} */}
-                  Step {
-  Math.min(
-    routeSummary.currentStep + 1,
-    routeSummary.totalSteps
-  )
-} of {routeSummary.totalSteps}
+                  Step{" "}
+                  {Math.min(routeSummary.currentStep + 1, routeSummary.totalSteps)} of{" "}
+                  {routeSummary.totalSteps}
                 </div>
               </div>
               <button
                 type="button"
                 disabled={!routeSummary.canGoBack}
                 onClick={onPreviousStep}
-                style={
-                  routeSummary.canGoBack ? iconButtonStyle : disabledIconButtonStyle
-                }
+                style={routeSummary.canGoBack ? iconButtonStyle : disabledIconButtonStyle}
                 aria-label="Previous route step"
               >
                 ‹
@@ -986,9 +1216,7 @@ export default function IndoorMapUI({
                 type="button"
                 disabled={!routeSummary.canGoNext}
                 onClick={onNextStep}
-                style={
-                  routeSummary.canGoNext ? iconButtonStyle : disabledIconButtonStyle
-                }
+                style={routeSummary.canGoNext ? iconButtonStyle : disabledIconButtonStyle}
                 aria-label="Next route step"
               >
                 ›
@@ -1029,7 +1257,7 @@ export default function IndoorMapUI({
               gap: 4,
             }}
           >
-            {venueData.floors.map((f) => (
+             {[...venueData.floors].reverse().map((f) => (
               <button
                 key={f}
                 onClick={() => onFloorSwitch(f)}

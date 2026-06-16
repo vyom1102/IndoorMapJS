@@ -27,6 +27,7 @@ import {
 import {
   buildEscalatorPlacements,
   buildSittingAreaPlacements,
+  buildTreePlacements,
 } from "./indoorMap/ModelRenderer";
 import {
   isEscalatorPolygonFeature,
@@ -222,22 +223,7 @@ const buildRouteSteps = (points) => {
     };
   });
 
-//   const lastSegment = segments[segments.length - 1];
-//   if (lastSegment) {
-//     lastSegment.icon = "◎";
-//     lastSegment.instruction = "Arrive at destination";
-//     // lastSegment.pointIndex = points.length - 1;
-//     lastSegment.pointIndex = Math.max(
-//   0,
-//   points.length - 2
-// );
-//     lastSegment.distance = formatDistance(
-//       metersBetween(
-//         points[points.length - 2]?.coord,
-//         points[points.length - 1]?.coord
-//       ) || getRouteDistanceM(points.slice(-2))
-//     );
-//   }
+
 const lastSegment =
   segments[segments.length - 1];
 
@@ -249,17 +235,7 @@ if (
   lastSegment.instruction =
     "Continue straight to destination";
 
-  // lastSegment.distance =
-  //   formatDistance(
-  //     metersBetween(
-  //       points[
-  //         points.length - 2
-  //       ]?.coord,
-  //       points[
-  //         points.length - 1
-  //       ]?.coord
-  //     )
-  //   );
+
 const finalDistance =
   metersBetween(
     points[
@@ -343,6 +319,7 @@ export default function IndoorMap() {
   const [routeStepIndex, setRouteStepIndex] = useState(0);
   const [floorRenderReady, setFloorRenderReady] = useState(true);
   const [tappedFeature, setTappedFeature] = useState(null);
+  const [selectedCategories, setSelectedCategories] = useState([]);
   const navStateRef = useRef({
     isNavigating: false,
     showStepsPreview: false,
@@ -433,6 +410,7 @@ export default function IndoorMap() {
     routeStepIndex,
     routeSteps,
   };
+const [destSelected, setDestSelected] = useState(false);
 
   const routeSummary = {
     hasRoute: routePoints.length > 1,
@@ -584,6 +562,7 @@ const firstRealStep = 0;
   };
 
   const clearDirections = () => {
+    setDestSelected(false); 
     endNavigation();
     setShowStepsPreview(false);
     clearRoute();
@@ -733,6 +712,7 @@ const firstRealStep = 0;
         "point-image-3d-",
         "escalator-model-3d-",
         "sitting-area-model-3d-",
+        "tree-model-3d-",
       ];
       allFloors.forEach((f) => {
         customLayerPrefixes.forEach((prefix) => {
@@ -1101,6 +1081,19 @@ const firstRealStep = 0;
         addTrackedGltfLayer(`sitting-area-model-3d-${floor}-${index}`, modelUrl, placements);
       });
 
+      // TREES
+      const treePlacementsByModel =
+        buildTreePlacements(floorFeatures);
+
+      Array.from(treePlacementsByModel.entries()).forEach(
+        ([modelUrl, placements], index) => {
+          addTrackedGltfLayer(
+            `tree-model-3d-${floor}-${index}`,
+            modelUrl,
+            placements
+          );
+        }
+      );
       // 3. SECTIONS (3D)
       map.addSource(`section-src-${floor}`, {
         type: "geojson",
@@ -1495,31 +1488,7 @@ const firstRealStep = 0;
     };
   }, [geo, floor, ready, routeRevision]);
 
-  // Click handler
-  // useEffect(() => {
-  //   const map = mapRef.current;
-  //   if (!map || !ready) return;
-
-  //   const onClick = (e) => {
-  //     const features = map.queryRenderedFeatures(e.point);
-  //     if (!features.length) return;
-  //     const props = features[0].properties || {};
-  //     if (
-  //       props.type === "Boundary" ||
-  //       props.type === "centroid" ||
-  //       props.type === "Waypoint"
-  //     )
-  //       return;
-  //     const coords =
-  //       features[0].geometry?.coordinates?.[0]?.[0] ||
-  //       features[0].geometry?.coordinates;
-  //     if (!coords) return;
-  //     map.flyTo({ center: coords, zoom: 20 });
-  //   };
-
-  //   map.on("click", onClick);
-  //   return () => map.off("click", onClick);
-  // }, [ready]);
+  
  useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
@@ -1580,7 +1549,6 @@ const firstRealStep = 0;
     return () => map.off("click", onClick);
   }, [ready, floor]);
 
-  // Update highlight layer when tapped feature changes
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
@@ -1600,7 +1568,63 @@ const firstRealStep = 0;
       }
     }
   }, [tappedFeature, floor, ready]);
+  // Filter search results based on selected categories
+  const filteredSearchResults = useMemo(() => {
+    if (selectedCategories.length === 0) return destResults;
+    
+    return destResults.filter((result) => {
+      const type = String(result.feature?.properties?.type || "").trim();
+      return selectedCategories.some((cat) => type.includes(cat));
+    });
+  }, [destResults, selectedCategories]);
 
+  // Update search handler to use filtered results
+  const handleDestSearchWithFilter = async (val) => {
+    setDestQuery(val);
+    const results = await searchPlaces(val, geo, venueCenter);
+    
+    // Filter by selected categories if any
+    if (selectedCategories.length > 0) {
+      const filtered = results.filter((result) => {
+        const type = String(result.feature?.properties?.type || "").trim();
+        return selectedCategories.some((cat) => type.includes(cat));
+      });
+      setDestResults(filtered);
+    } else {
+      setDestResults(results);
+    }
+  };
+
+useEffect(() => {
+  const map = mapRef.current;
+  if (!map || !ready) return;
+
+  const layers = map.getStyle()?.layers || [];
+
+  if (selectedCategories.length > 0) {
+    console.log(selectedCategories);
+
+    const filterExpression = [
+      "match",
+      ["get", "type"],
+      selectedCategories,
+      true,
+      false,
+    ];
+
+    layers.forEach((layer) => {
+      if (layer.id.startsWith("default-poi")) {
+        map.setFilter(layer.id, filterExpression);
+      }
+    });
+  } else {
+    layers.forEach((layer) => {
+      if (layer.id.startsWith("default-poi")) {
+        map.setFilter(layer.id, null);
+      }
+    });
+  }
+}, [selectedCategories, ready]);
   // Search handlers
   const handleSourceSearch = async (val) => {
     setSourceQuery(val);
@@ -1636,6 +1660,9 @@ const firstRealStep = 0;
 
 const handleSelectDest = (item) => {
   console.log("CALLER GEO DEST:", geo);
+setDestSelected(true); 
+  // Clear category filter when destination is selected
+  setSelectedCategories([]);
 
   selectDest(
     item,
@@ -1661,6 +1688,9 @@ const handleSetTappedAsDest = () => {
     handleSelectDest(tappedFeature.item);
     setTappedFeature(null);
   };
+  const handleClearFilter = () => {
+  setSelectedCategories([]);
+};
 
   const handleCloseTappedPanel = () => {
     const map = mapRef.current;
@@ -1673,6 +1703,74 @@ const handleSetTappedAsDest = () => {
     setTappedFeature(null);
   };
 
+const getIconForCategory = (type) => {
+  const lowerType = String(type || "").toLowerCase();
+  if (lowerType.includes("female washroom")) return "/assets/icons/femaleWashroom.png";
+  if (lowerType.includes("male washroom")) return "/assets/icons/maleWashroom.png";
+  if (lowerType.includes("accessible washroom")) return "/assets/icons/accessibleWashroom.png";
+  if (lowerType.includes("unisex washroom")) return "/assets/icons/unisex_washroom.png";
+  if (lowerType.includes("washroom")) return "/assets/icons/unisex_washroom.png"; // fallback
+  if (lowerType.includes("water")) return "/assets/icons/water.png";
+  if (lowerType.includes("food") || lowerType.includes("cafeteria")) return "/assets/icons/cafeteria.png";
+  if (lowerType.includes("lift")) return "/assets/icons/lift.png";
+  if (lowerType.includes("stair")) return "/assets/icons/stairs.png";
+  // if (lowerType.includes("reception")) return "/assets/icons/reception.png";
+  if (lowerType.includes("main entry")) return "/assets/icons/entry.png";
+  if (lowerType.includes("exit only")) return "/assets/icons/exit.png";
+  if (lowerType.includes("parking")) return "/assets/icons/parking.png";
+  // if (lowerType.includes("registration")) return "/assets/icons/reception.png";
+  return null;
+};
+  // Extract unique POI categories from venue data
+  const poiCategories = useMemo(() => {
+    if (!geo || !geo.features) return [];
+    
+    const categories = new Map();
+    const categoryOrder = [
+      "Washroom",
+      "Drinking Water",
+      "Food & Beverage",
+      "Lift",
+      "Stairs",
+      "Parking",
+      "Information",
+    ];
+
+    geo.features.forEach((f) => {
+      const props = f.properties || {};
+      const type = String(props.type || props.polygonType || "").trim();
+      
+      if (!type || f.geometry?.type !== "Point") return;
+      
+      // Skip waypoints, centroids, etc
+      if (type.includes("Waypoint") || type.includes("centroid") || type.includes("Restricted")) return;
+      
+      // Only include if it has a specific icon
+      const icon = getIconForCategory(type);
+      if (!icon) return; // Skip types without specific icons
+      
+      if (!categories.has(type)) {
+        categories.set(type, {
+          name: type,
+          label: type,
+          count: 0,
+          icon: icon,
+        });
+      }
+      categories.get(type).count += 1;
+    });
+
+    // Sort by predefined order, then alphabetically
+    return Array.from(categories.values()).sort((a, b) => {
+      const aIdx = categoryOrder.indexOf(a.name);
+      const bIdx = categoryOrder.indexOf(b.name);
+      if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+      if (aIdx !== -1) return -1;
+      if (bIdx !== -1) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [geo]);
+
   return (
     <div style={{ height: "100vh", width: "100%", position: "relative" }}>
       <IndoorMapUI
@@ -1682,8 +1780,9 @@ const handleSetTappedAsDest = () => {
         destResults={destResults}
         venueData={venueData}
         floor={floor}
+        destSelected={destSelected}
         onSourceSearch={handleSourceSearch}
-        onDestSearch={handleDestSearch}
+        onDestSearch={handleDestSearchWithFilter}
         onSourceSelect={handleSelectSource}
         onDestSelect={handleSelectDest}
         onFloorSwitch={handleFloorSwitch}
@@ -1699,33 +1798,17 @@ const handleSetTappedAsDest = () => {
         tappedFeature={tappedFeature}
         onSetTappedAsDest={handleSetTappedAsDest}
         onCloseTappedPanel={handleCloseTappedPanel}
+        poiCategories={poiCategories}
+        selectedCategories={selectedCategories}
+        onClearFilter={handleClearFilter}
+        onCategoryToggle={(category) => {
+          setSelectedCategories((prev) =>
+            prev.includes(category.name)
+              ? prev.filter((c) => c !== category.name)
+              : [...prev, category.name]
+          );
+        }}
       />
     </div>
   );
-  // return (
-  //   <div style={{ height: "100vh", width: "100%", position: "relative" }}>
-  //     <IndoorMapUI
-  //       sourceQuery={sourceQuery}
-  //       destQuery={destQuery}
-  //       sourceResults={sourceResults}
-  //       destResults={destResults}
-  //       venueData={venueData}
-  //       floor={floor}
-  //       onSourceSearch={handleSourceSearch}
-  //       onDestSearch={handleDestSearch}
-  //       onSourceSelect={handleSelectSource}
-  //       onDestSelect={handleSelectDest}
-  //       onFloorSwitch={handleFloorSwitch}
-  //       routeSummary={routeSummary}
-  //       onOpenSteps={openStepsPreview}
-  //       onCloseSteps={closeStepsPreview}
-  //       onStartNavigation={startNavigation}
-  //       onEndNavigation={endNavigation}
-  //       onClearDirections={clearDirections}
-  //       onPreviousStep={() => moveToRouteStep(routeStepIndex - 1)}
-  //       onNextStep={() => moveToRouteStep(routeStepIndex + 1)}
-  //       containerRef={containerRef}
-  //     />
-  //   </div>
-  // );
 }

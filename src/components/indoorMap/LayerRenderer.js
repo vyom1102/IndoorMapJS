@@ -79,6 +79,19 @@ export const preloadDefaultIcons = async (map) => {
   ]);
 };
 
+const ICON_TO_CATEGORY = {
+  "cafeteria-default": "Cafeteria",
+  "lift-default": "Lift",
+  "male-washroom-default": "Male Washroom",
+  "female-washroom-default": "Female Washroom",
+  "unisex-washroom-default": "Unisex Washroom",
+  "accessible-washroom-default": "Accessible Washroom",
+  "stairs-default": "Stairs",
+  "water-default": "Drinking Water",
+  "reception-default": "Reception",
+  "main-entry-default": "Main Entry",
+  "exit-only-default": "Exit Only",
+};
 export const renderDefaultPoiLayer = async (
   map,
   floorFeatures,
@@ -247,6 +260,7 @@ export const renderDefaultPoiLayer = async (
       properties: {
         icon,
         name: label,
+        type: ICON_TO_CATEGORY[icon],
       },
     });
   }
