@@ -412,13 +412,16 @@ destRef.current.setLngLat(lngLat);
       targetFloor
     );
   }
-
+  console.log(
+    "DEST QUERY:",
+    feature.properties);
   setDestQuery(
     feature.properties
       ?.renderName ||
       feature.properties
         ?.name ||
-      ""
+        feature.properties.type ||
+      "Destination"
   );
 
   setDestResults([]);
@@ -437,105 +440,3 @@ destRef.current.setLngLat(lngLat);
     );
   }
 };
-// export const selectDest = async (
-//   item,
-//   mapRef,
-//   destRef,
-//   destFloorRef,
-//   floor,
-//   switchFloor,
-//   getFeatureRoutingCoordinates,
-//   setDestQuery,
-//   setDestResults,
-//   sourceRef,
-//   handleRouting,
-//   updateMarkerVisibilityForFloor,
-//   geo
-// ) => {
-//   const map = mapRef.current;
-
-//   if (!map) return;
-
-//   if (item.googlePlace) {
-//     const g = item.googlePlace;
-
-//     const nearestExit = findNearestExit(g.location, geo);
-
-//     if (!nearestExit) {
-//       return;
-//     }
-
-//     const coords = nearestExit.coords;
-//     const targetFloor = nearestExit.floor ?? 0;
-
-//     destFloorRef.current = targetFloor;
-
-//     if (targetFloor !== floor) {
-//       await switchFloor(targetFloor);
-//     }
-
-//     if (!destRef.current) {
-//       destRef.current = new maplibregl.Marker({
-//         color: "red",
-//       })
-//         .setLngLat(coords)
-//         .addTo(map);
-//     } else {
-//       destRef.current.setLngLat(coords);
-//       updateMarkerVisibilityForFloor(targetFloor);
-//     }
-
-//     setDestQuery(g.name);
-//     setDestResults([]);
-
-//     map.flyTo({
-//       center: [g.location.lng, g.location.lat],
-//       zoom: 18,
-//     });
-
-//     if (sourceRef.current && destRef.current) {
-//       routeAfterFloorUpdate(handleRouting);
-//     }
-
-//     return;
-//   }
-
-//   const feature = item.feature;
-//   const coords = getFeatureRoutingCoordinates(feature);
-
-//   if (!coords) return;
-
-//   const targetFloor = feature.properties?.floor ?? 0;
-
-//   destFloorRef.current = targetFloor;
-
-//   if (targetFloor !== floor) {
-//     await switchFloor(targetFloor);
-//   }
-
-//   if (!destRef.current) {
-//     destRef.current = new maplibregl.Marker({
-//       color: "red",
-//     })
-//       .setLngLat(coords)
-//       .addTo(map);
-//   } else {
-//     destRef.current.setLngLat(coords);
-//     updateMarkerVisibilityForFloor(targetFloor);
-//   }
-
-//   setDestQuery(
-//     feature.properties?.renderName || feature.properties?.name || ""
-//   );
-
-//   setDestResults([]);
-
-//   map.flyTo({
-//     center: coords,
-//     zoom: 20,
-//   });
-
-//   if (sourceRef.current && destRef.current) {
-//     routeAfterFloorUpdate(handleRouting);
-//   }
-// };
