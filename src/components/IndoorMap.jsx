@@ -780,6 +780,13 @@ const floorsToRender =
     ? [floor]                    // basement floors: render only current floor
     : availableFloors.filter((f) => f <= floor); // normal floors: stack below
 
+    const isSingleFloorRender = floorsToRender.length === 1;
+  const boundaryFloor =
+  floor < 0
+    ? floor // for basement view show its own boundary
+    : availableFloors.includes(0)
+      ? 0
+      : Math.min(...availableFloors);
     for (const floorIndex of floorsToRender) {
       if (!isCurrentRender()) return;
 
@@ -827,18 +834,23 @@ const baseOffset =
         );
       });
 
-      // ── 1. BOUNDARY BASE ────────────────────────────────────────────────────
+    
+    if (floorIndex === boundaryFloor) {
       map.addSource(`boundary-base-src-${floorIndex}`, {
         type: "geojson",
         data: { type: "FeatureCollection", features: boundaries },
       });
+
       map.addLayer({
         id: `boundary-base-${floorIndex}`,
         type: "fill",
         source: `boundary-base-src-${floorIndex}`,
-        paint: { "fill-color": "#D4DBDD", "fill-opacity": 1 },
+        paint: {
+          "fill-color": "#D4DBDD",
+          "fill-opacity": 1,
+        },
       });
-
+    }
       // ── Helper: build height expression offset by baseOffset ────────────────
       // Takes the raw per-feature height expression and adds baseOffset to both
       // fill-extrusion-base and fill-extrusion-height so the floor is stacked.
@@ -905,7 +917,7 @@ const baseOffset =
         id: `floor_${floorIndex}_rooms`,
         type: "fill-extrusion",
         source: `floor_${floorIndex}_rooms`,
-        minzoom: 16,
+        minzoom: 14,
         paint: {
           "fill-extrusion-color": [
             "case",

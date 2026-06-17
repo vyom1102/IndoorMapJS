@@ -1,4 +1,4 @@
-
+import { useState } from "react";
 const resultPanelStyle = {
   background: "#fff",
   borderRadius: 8,
@@ -499,228 +499,614 @@ function CategoryFilterPanel({
   onDestSelect,
   onClearFilter,
 }) {
+  const [searchExpanded, setSearchExpanded] = useState(false);
+  const [recentSearches, setRecentSearches] = useState([]);
+  const [searchValue, setSearchValue] = useState("");
+
   const hasActiveFilter = selectedCategories.length > 0;
-  // When a filter is active, show the first selected category as the chip
   const activeCategory = hasActiveFilter
     ? categories.find((c) => c.name === selectedCategories[0])
     : null;
 
-  return (
-    <div className="directions-panel-container">
-      <div
-        style={{
-          background: "#1a1a1a",
-          borderRadius: 12,
-          boxShadow: "0 18px 48px rgba(0, 0, 0, 0.3)",
-          border: "1px solid rgba(255, 255, 255, 0.1)",
-          overflow: "hidden",
-          padding: "18px",
-        }}
-      >
-        {/* Search input — always visible */}
-        <input
-          type="text"
-          placeholder="🔍 Search for a point of interest"
-          onChange={(e) => onSearch(e.target.value)}
-          style={{
-            width: "100%",
-            height: 48,
-            padding: "0 16px",
-            borderRadius: 10,
-            border: "1px solid rgba(255, 255, 255, 0.2)",
-            background: "rgba(255, 255, 255, 0.1)",
-            color: "#fff",
-            fontSize: 14,
-            outline: "none",
-            marginBottom: 16,
-            boxSizing: "border-box",
-          }}
-        />
+  const handleSearchChange = (val) => {
+    setSearchValue(val);
+    onSearch(val);
+  };
 
-        {hasActiveFilter && activeCategory ? (
-          /* ── Active filter chip view ── */
-          <div
+  const commitRecentSearch = (val) => {
+    const trimmed = val.trim();
+    if (!trimmed) return;
+    setRecentSearches((prev) => {
+      const next = [trimmed, ...prev.filter((s) => s !== trimmed)];
+      return next.slice(0, 6);
+    });
+  };
+
+  const closeExpanded = () => {
+    setSearchExpanded(false);
+  };
+
+  const handleCategoryTap = (cat) => {
+    onCategoryToggle(cat);
+    closeExpanded();
+  };
+
+  const handleResultTap = (result) => {
+    commitRecentSearch(searchValue);
+    onDestSelect(result);
+    closeExpanded();
+  };
+
+  const handleRecentTap = (term) => {
+    setSearchValue(term);
+    onSearch(term);
+  };
+
+  const removeRecent = (term) => {
+    setRecentSearches((prev) => prev.filter((s) => s !== term));
+  };
+
+  return (
+    <>
+      {/* ── DESKTOP (unchanged) ── */}
+      <div className="poi-panel-desktop directions-panel-container">
+        <div
+          style={{
+            background: "#1a1a1a",
+            borderRadius: 12,
+            boxShadow: "0 18px 48px rgba(0, 0, 0, 0.3)",
+            border: "1px solid rgba(255, 255, 255, 0.1)",
+            overflow: "hidden",
+            padding: "18px",
+          }}
+        >
+          <input
+            type="text"
+            placeholder="🔍 Search for a point of interest"
+            onChange={(e) => onSearch(e.target.value)}
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "10px 14px",
+              width: "100%",
+              height: 48,
+              padding: "0 16px",
               borderRadius: 10,
-              background: "rgba(47, 87, 214, 0.25)",
-              border: "1.5px solid #2f57d6",
+              border: "1px solid rgba(255, 255, 255, 0.2)",
+              background: "rgba(255, 255, 255, 0.1)",
+              color: "#fff",
+              fontSize: 14,
+              outline: "none",
+              marginBottom: 16,
+              boxSizing: "border-box",
             }}
-          >
-            {/* Same icon as on the map */}
+          />
+
+          {hasActiveFilter && activeCategory ? (
             <div
               style={{
-                width: 36,
-                height: 36,
-                borderRadius: 8,
-                background: "rgba(47, 87, 214, 0.35)",
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
+                gap: 10,
+                padding: "10px 14px",
+                borderRadius: 10,
+                background: "rgba(47, 87, 214, 0.25)",
+                border: "1.5px solid #2f57d6",
               }}
             >
-              <CategoryIcon category={activeCategory} size={22} />
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 8,
+                  background: "rgba(47, 87, 214, 0.35)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <CategoryIcon category={activeCategory} size={22} />
+              </div>
+              <span style={{ flex: 1, color: "#fff", fontSize: 14, fontWeight: 700 }}>
+                {activeCategory.label}
+              </span>
+              <button
+                onClick={onClearFilter}
+                aria-label="Clear filter"
+                style={{
+                  width: 28,
+                  height: 28,
+                  border: "none",
+                  borderRadius: 6,
+                  background: "rgba(255,255,255,0.12)",
+                  color: "rgba(255,255,255,0.8)",
+                  fontSize: 16,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                ✕
+              </button>
             </div>
-
-            <span
+          ) : (
+            <div
               style={{
-                flex: 1,
-                color: "#fff",
-                fontSize: 14,
-                fontWeight: 700,
+                display: "grid",
+                gridTemplateColumns: "repeat(3, 1fr)",
+                gap: 12,
+                maxHeight: 320,
+                overflowY: "auto",
+                paddingRight: 4,
               }}
             >
-              {activeCategory.label}
-            </span>
-
-            {/* Clear filter button */}
-            <button
-              onClick={onClearFilter}
-              aria-label="Clear filter"
-              style={{
-                width: 28,
-                height: 28,
-                border: "none",
-                borderRadius: 6,
-                background: "rgba(255,255,255,0.12)",
-                color: "rgba(255,255,255,0.8)",
-                fontSize: 16,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        ) : (
-          /* ── Category grid view ── */
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 12,
-              maxHeight: 320,
-              overflowY: "auto",
-              paddingRight: 4,
-            }}
-          >
-            {categories.map((cat) => {
-              const isSelected = selectedCategories.includes(cat.name);
-              return (
-                <button
-                  key={cat.name}
-                  onClick={() => onCategoryToggle(cat)}
-                  style={{
-                    padding: "12px 10px",
-                    borderRadius: 12,
-                    border: isSelected ? "2px solid #2f57d6" : "1px solid transparent",
-                    background: isSelected
-                      ? "rgba(47, 87, 214, 0.3)"
-                      : "rgba(255, 255, 255, 0.08)",
-                    color: isSelected ? "#fff" : "rgba(255, 255, 255, 0.7)",
-                    cursor: "pointer",
-                    textAlign: "center",
-                    transition: "all 0.2s ease",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: 6,
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
-                >
-                  {/* Real map icon instead of emoji */}
-                  <div
+              {categories.map((cat) => {
+                const isSelected = selectedCategories.includes(cat.name);
+                return (
+                  <button
+                    key={cat.name}
+                    onClick={() => onCategoryToggle(cat)}
                     style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 8,
-                      background: isSelected
-                        ? "rgba(47, 87, 214, 0.4)"
-                        : "rgba(255,255,255,0.1)",
+                      padding: "12px 10px",
+                      borderRadius: 12,
+                      border: isSelected ? "2px solid #2f57d6" : "1px solid transparent",
+                      background: isSelected ? "rgba(47, 87, 214, 0.3)" : "rgba(255, 255, 255, 0.08)",
+                      color: isSelected ? "#fff" : "rgba(255, 255, 255, 0.7)",
+                      cursor: "pointer",
+                      textAlign: "center",
+                      transition: "all 0.2s ease",
                       display: "flex",
+                      flexDirection: "column",
                       alignItems: "center",
-                      justifyContent: "center",
+                      gap: 6,
+                      fontSize: 12,
+                      fontWeight: 600,
                     }}
                   >
-                    <CategoryIcon category={cat} size={22} />
-                  </div>
-                  <span style={{ lineHeight: 1.2, wordBreak: "break-word" }}>
-                    {cat.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 8,
+                        background: isSelected ? "rgba(47, 87, 214, 0.4)" : "rgba(255,255,255,0.1)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <CategoryIcon category={cat} size={22} />
+                    </div>
+                    <span style={{ lineHeight: 1.2, wordBreak: "break-word" }}>{cat.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
-        {/* Search results */}
-        {destResults && destResults.length > 0 && (
-          <div
-            style={{
-              marginTop: 16,
-              paddingTop: 16,
-              borderTop: "1px solid rgba(255, 255, 255, 0.1)",
-            }}
+          {destResults && destResults.length > 0 && (
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid rgba(255, 255, 255, 0.1)" }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "rgba(255, 255, 255, 0.5)", marginBottom: 8 }}>
+                Search Results
+              </div>
+              <div style={{ display: "grid", gap: 6, maxHeight: 200, overflowY: "auto" }}>
+                {destResults.slice(0, 8).map((result, i) => (
+                  <button
+                    key={`${result.matchedText}-${i}`}
+                    onClick={() => onDestSelect(result)}
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      background: "rgba(255, 255, 255, 0.05)",
+                      color: "#fff",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      fontSize: 13,
+                      transition: "all 0.2s ease",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)"; }}
+                  >
+                    <div style={{ fontWeight: 600 }}>{result.matchedText}</div>
+                    {result.actualName !== result.matchedText && (
+                      <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>{result.actualName}</div>
+                    )}
+                    <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>{result.floorLabel}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── MOBILE: collapsed floating bar + peeking bottom sheet ── */}
+      {!searchExpanded && (
+        <div className="poi-mobile-collapsed">
+          <button
+            type="button"
+            className="poi-mobile-searchbar"
+            onClick={() => setSearchExpanded(true)}
           >
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                color: "rgba(255, 255, 255, 0.5)",
-                marginBottom: 8,
+            <span className="poi-mobile-searchbar-icon">🔍</span>
+            <span className="poi-mobile-searchbar-placeholder">
+              {searchValue || "Search for a point of interest"}
+            </span>
+            <span
+              className="poi-mobile-searchbar-list"
+              role="button"
+              aria-label="Open categories"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSearchExpanded(true);
               }}
             >
-              Search Results
+              ☰
+            </span>
+          </button>
+
+          <div className="poi-mobile-sheet">
+            <div className="poi-mobile-sheet-handle" />
+            <div className="poi-mobile-sheet-row">
+              {categories.map((cat) => {
+                const isSelected = selectedCategories.includes(cat.name);
+                return (
+                  <button
+                    key={cat.name}
+                    className="poi-mobile-chip"
+                    onClick={() => onCategoryToggle(cat)}
+                  >
+                    <div
+                      className="poi-mobile-chip-icon"
+                      style={{
+                        background: isSelected ? "#2f57d6" : undefined,
+                      }}
+                    >
+                      <CategoryIcon category={cat} size={26} />
+                    </div>
+                    <span className="poi-mobile-chip-label">{cat.label}</span>
+                  </button>
+                );
+              })}
             </div>
-            <div style={{ display: "grid", gap: 6, maxHeight: 200, overflowY: "auto" }}>
-              {destResults.slice(0, 8).map((result, i) => (
+          </div>
+        </div>
+      )}
+
+      {/* ── MOBILE: expanded full-page search (opaque, map hidden) ── */}
+      {searchExpanded && (
+        <div className="poi-mobile-expanded poi-mobile-expanded--solid">
+          <div className="poi-mobile-expanded-header">
+            <button
+              type="button"
+              className="poi-mobile-back"
+              onClick={closeExpanded}
+              aria-label="Back"
+            >
+              ‹
+            </button>
+            <input
+              autoFocus
+              type="text"
+              className="poi-mobile-expanded-input"
+              placeholder="Search for a point of interest"
+              value={searchValue}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRecentSearch(searchValue);
+              }}
+            />
+            <button
+              type="button"
+              className="poi-mobile-maptoggle"
+              onClick={closeExpanded}
+              aria-label="Back to map"
+            >
+              🗺
+            </button>
+          </div>
+
+          {recentSearches.length > 0 && !searchValue && (
+            <div className="poi-mobile-recents">
+              {recentSearches.map((term) => (
+                <div key={term} className="poi-mobile-recent-row">
+                  <button
+                    type="button"
+                    className="poi-mobile-recent-text"
+                    onClick={() => handleRecentTap(term)}
+                  >
+                    <span className="poi-mobile-recent-clock">🕐</span>
+                    {term}
+                  </button>
+                  <button
+                    type="button"
+                    className="poi-mobile-recent-clear"
+                    onClick={() => removeRecent(term)}
+                    aria-label="Remove"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!searchValue && (
+            <div className="poi-mobile-grid">
+              {categories.map((cat) => {
+                const isSelected = selectedCategories.includes(cat.name);
+                return (
+                  <button
+                    key={cat.name}
+                    className="poi-mobile-grid-item"
+                    onClick={() => handleCategoryTap(cat)}
+                  >
+                    <div
+                      className="poi-mobile-grid-icon"
+                      style={{ background: isSelected ? "#2f57d6" : undefined }}
+                    >
+                      <CategoryIcon category={cat} size={26} />
+                    </div>
+                    <span className="poi-mobile-grid-label">{cat.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {searchValue && destResults && destResults.length > 0 && (
+            <div className="poi-mobile-results">
+              {destResults.slice(0, 12).map((result, i) => (
                 <button
                   key={`${result.matchedText}-${i}`}
-                  onClick={() => onDestSelect(result)}
-                  style={{
-                    padding: "10px 12px",
-                    borderRadius: 8,
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
-                    background: "rgba(255, 255, 255, 0.05)",
-                    color: "#fff",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 13,
-                    transition: "all 0.2s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
-                  }}
+                  className="poi-mobile-result-row"
+                  onClick={() => handleResultTap(result)}
                 >
-                  <div style={{ fontWeight: 600 }}>{result.matchedText}</div>
+                  <div className="poi-mobile-result-name">{result.matchedText}</div>
                   {result.actualName !== result.matchedText && (
-                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>
-                      {result.actualName}
-                    </div>
+                    <div className="poi-mobile-result-sub">{result.actualName}</div>
                   )}
-                  <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>
-                    {result.floorLabel}
-                  </div>
+                  <div className="poi-mobile-result-floor">{result.floorLabel}</div>
                 </button>
               ))}
             </div>
-          </div>
-        )}
-      </div>
-    </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }
+// function CategoryFilterPanel({
+//   categories,
+//   selectedCategories,
+//   onCategoryToggle,
+//   onSearch,
+//   destResults,
+//   onDestSelect,
+//   onClearFilter,
+// }) {
+//   const hasActiveFilter = selectedCategories.length > 0;
+//   // When a filter is active, show the first selected category as the chip
+//   const activeCategory = hasActiveFilter
+//     ? categories.find((c) => c.name === selectedCategories[0])
+//     : null;
+
+//   return (
+//     <div className="directions-panel-container">
+//       <div
+//         style={{
+//           background: "#1a1a1a",
+//           borderRadius: 12,
+//           boxShadow: "0 18px 48px rgba(0, 0, 0, 0.3)",
+//           border: "1px solid rgba(255, 255, 255, 0.1)",
+//           overflow: "hidden",
+//           padding: "18px",
+//         }}
+//       >
+//         {/* Search input — always visible */}
+//         <input
+//           type="text"
+//           placeholder="🔍 Search for a point of interest"
+//           onChange={(e) => onSearch(e.target.value)}
+//           style={{
+//             width: "100%",
+//             height: 48,
+//             padding: "0 16px",
+//             borderRadius: 10,
+//             border: "1px solid rgba(255, 255, 255, 0.2)",
+//             background: "rgba(255, 255, 255, 0.1)",
+//             color: "#fff",
+//             fontSize: 14,
+//             outline: "none",
+//             marginBottom: 16,
+//             boxSizing: "border-box",
+//           }}
+//         />
+
+//         {hasActiveFilter && activeCategory ? (
+//           /* ── Active filter chip view ── */
+//           <div
+//             style={{
+//               display: "flex",
+//               alignItems: "center",
+//               gap: 10,
+//               padding: "10px 14px",
+//               borderRadius: 10,
+//               background: "rgba(47, 87, 214, 0.25)",
+//               border: "1.5px solid #2f57d6",
+//             }}
+//           >
+//             {/* Same icon as on the map */}
+//             <div
+//               style={{
+//                 width: 36,
+//                 height: 36,
+//                 borderRadius: 8,
+//                 background: "rgba(47, 87, 214, 0.35)",
+//                 display: "flex",
+//                 alignItems: "center",
+//                 justifyContent: "center",
+//                 flexShrink: 0,
+//               }}
+//             >
+//               <CategoryIcon category={activeCategory} size={22} />
+//             </div>
+
+//             <span
+//               style={{
+//                 flex: 1,
+//                 color: "#fff",
+//                 fontSize: 14,
+//                 fontWeight: 700,
+//               }}
+//             >
+//               {activeCategory.label}
+//             </span>
+
+//             {/* Clear filter button */}
+//             <button
+//               onClick={onClearFilter}
+//               aria-label="Clear filter"
+//               style={{
+//                 width: 28,
+//                 height: 28,
+//                 border: "none",
+//                 borderRadius: 6,
+//                 background: "rgba(255,255,255,0.12)",
+//                 color: "rgba(255,255,255,0.8)",
+//                 fontSize: 16,
+//                 cursor: "pointer",
+//                 display: "flex",
+//                 alignItems: "center",
+//                 justifyContent: "center",
+//                 flexShrink: 0,
+//               }}
+//             >
+//               ✕
+//             </button>
+//           </div>
+//         ) : (
+//           /* ── Category grid view ── */
+//           <div
+//             style={{
+//               display: "grid",
+//               gridTemplateColumns: "repeat(3, 1fr)",
+//               gap: 12,
+//               maxHeight: 320,
+//               overflowY: "auto",
+//               paddingRight: 4,
+//             }}
+//           >
+//             {categories.map((cat) => {
+//               const isSelected = selectedCategories.includes(cat.name);
+//               return (
+//                 <button
+//                   key={cat.name}
+//                   onClick={() => onCategoryToggle(cat)}
+//                   style={{
+//                     padding: "12px 10px",
+//                     borderRadius: 12,
+//                     border: isSelected ? "2px solid #2f57d6" : "1px solid transparent",
+//                     background: isSelected
+//                       ? "rgba(47, 87, 214, 0.3)"
+//                       : "rgba(255, 255, 255, 0.08)",
+//                     color: isSelected ? "#fff" : "rgba(255, 255, 255, 0.7)",
+//                     cursor: "pointer",
+//                     textAlign: "center",
+//                     transition: "all 0.2s ease",
+//                     display: "flex",
+//                     flexDirection: "column",
+//                     alignItems: "center",
+//                     gap: 6,
+//                     fontSize: 12,
+//                     fontWeight: 600,
+//                   }}
+//                 >
+//                   {/* Real map icon instead of emoji */}
+//                   <div
+//                     style={{
+//                       width: 36,
+//                       height: 36,
+//                       borderRadius: 8,
+//                       background: isSelected
+//                         ? "rgba(47, 87, 214, 0.4)"
+//                         : "rgba(255,255,255,0.1)",
+//                       display: "flex",
+//                       alignItems: "center",
+//                       justifyContent: "center",
+//                     }}
+//                   >
+//                     <CategoryIcon category={cat} size={22} />
+//                   </div>
+//                   <span style={{ lineHeight: 1.2, wordBreak: "break-word" }}>
+//                     {cat.label}
+//                   </span>
+//                 </button>
+//               );
+//             })}
+//           </div>
+//         )}
+
+//         {/* Search results */}
+//         {destResults && destResults.length > 0 && (
+//           <div
+//             style={{
+//               marginTop: 16,
+//               paddingTop: 16,
+//               borderTop: "1px solid rgba(255, 255, 255, 0.1)",
+//             }}
+//           >
+//             <div
+//               style={{
+//                 fontSize: 12,
+//                 fontWeight: 600,
+//                 color: "rgba(255, 255, 255, 0.5)",
+//                 marginBottom: 8,
+//               }}
+//             >
+//               Search Results
+//             </div>
+//             <div style={{ display: "grid", gap: 6, maxHeight: 200, overflowY: "auto" }}>
+//               {destResults.slice(0, 8).map((result, i) => (
+//                 <button
+//                   key={`${result.matchedText}-${i}`}
+//                   onClick={() => onDestSelect(result)}
+//                   style={{
+//                     padding: "10px 12px",
+//                     borderRadius: 8,
+//                     border: "1px solid rgba(255, 255, 255, 0.1)",
+//                     background: "rgba(255, 255, 255, 0.05)",
+//                     color: "#fff",
+//                     cursor: "pointer",
+//                     textAlign: "left",
+//                     fontSize: 13,
+//                     transition: "all 0.2s ease",
+//                   }}
+//                   onMouseEnter={(e) => {
+//                     e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
+//                   }}
+//                   onMouseLeave={(e) => {
+//                     e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
+//                   }}
+//                 >
+//                   <div style={{ fontWeight: 600 }}>{result.matchedText}</div>
+//                   {result.actualName !== result.matchedText && (
+//                     <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>
+//                       {result.actualName}
+//                     </div>
+//                   )}
+//                   <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>
+//                     {result.floorLabel}
+//                   </div>
+//                 </button>
+//               ))}
+//             </div>
+//           </div>
+//         )}
+//       </div>
+//     </div>
+//   );
+// }
 
 export default function IndoorMapUI({
   sourceQuery,
@@ -969,6 +1355,297 @@ export default function IndoorMapUI({
               min-width: 50px !important;
               font-size: 11px !important;
               padding: 0 6px !important;
+            }
+          }
+            /* ── POI panel: desktop visible by default, mobile hidden by default ── */
+          .poi-panel-desktop {
+            display: block;
+          }
+          .poi-mobile-collapsed,
+          .poi-mobile-expanded {
+            display: none;
+          }
+
+          @media (max-width: 768px) {
+            .poi-panel-desktop {
+              display: none !important;
+            }
+
+            /* Floating pill search bar */
+            .poi-mobile-collapsed {
+              display: block !important;
+            }
+
+            .poi-mobile-searchbar {
+              position: absolute;
+              top: 10px;
+              left: 10px;
+              right: 10px;
+              z-index: 20;
+              height: 46px;
+              border-radius: 24px;
+              border: none;
+              background: #1f2937;
+              color: #fff;
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              padding: 0 14px;
+              box-shadow: 0 10px 28px rgba(0,0,0,0.28);
+              cursor: pointer;
+            }
+
+            .poi-mobile-searchbar-icon {
+              font-size: 16px;
+              opacity: 0.8;
+              flex-shrink: 0;
+            }
+
+            .poi-mobile-searchbar-placeholder {
+              flex: 1;
+              text-align: left;
+              font-size: 14px;
+              color: rgba(255,255,255,0.65);
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+            }
+
+            .poi-mobile-searchbar-list {
+              font-size: 18px;
+              flex-shrink: 0;
+              padding: 4px;
+            }
+
+            /* Bottom sheet peeking with one row of categories */
+            .poi-mobile-sheet {
+              position: absolute;
+              left: 0;
+              right: 0;
+              bottom: 0;
+              z-index: 19;
+              background: #1a1a1a;
+              border-top-left-radius: 18px;
+              border-top-right-radius: 18px;
+              box-shadow: 0 -10px 30px rgba(0,0,0,0.3);
+              padding: 8px 0 16px;
+            }
+
+            .poi-mobile-sheet-handle {
+              width: 40px;
+              height: 4px;
+              border-radius: 4px;
+              background: rgba(255,255,255,0.25);
+              margin: 0 auto 10px;
+            }
+
+            .poi-mobile-sheet-row {
+              display: flex;
+              gap: 18px;
+              overflow-x: auto;
+              padding: 0 18px;
+              scroll-snap-type: x proximity;
+              -webkit-overflow-scrolling: touch;
+            }
+
+            .poi-mobile-sheet-row::-webkit-scrollbar {
+              display: none;
+            }
+
+            .poi-mobile-chip {
+              flex: 0 0 auto;
+              scroll-snap-align: start;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              gap: 6px;
+              border: none;
+              background: transparent;
+              cursor: pointer;
+              min-width: 64px;
+            }
+
+            .poi-mobile-chip-icon {
+              width: 52px;
+              height: 52px;
+              border-radius: 50%;
+              background: rgba(255,255,255,0.1);
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            }
+
+            .poi-mobile-chip-label {
+              font-size: 11px;
+              font-weight: 600;
+              color: rgba(255,255,255,0.85);
+              text-align: center;
+              line-height: 1.2;
+              max-width: 72px;
+            }
+
+            /* Expanded full-page search */
+            .poi-mobile-expanded {
+              display: flex !important;
+              flex-direction: column;
+              position: absolute;
+              inset: 0;
+              z-index: 30;
+              padding: 10px 10px 16px;
+              overflow-y: auto;
+            }
+
+            .poi-mobile-expanded--solid {
+              background: #1a1a1a;
+            }
+
+            .poi-mobile-expanded--translucent {
+              background: rgba(10, 10, 10, 0.86);
+              backdrop-filter: blur(2px);
+            }
+
+            .poi-mobile-expanded-header {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              flex-shrink: 0;
+            }
+
+            .poi-mobile-back,
+            .poi-mobile-maptoggle {
+              width: 38px;
+              height: 38px;
+              border: none;
+              border-radius: 10px;
+              background: rgba(255,255,255,0.1);
+              color: #fff;
+              font-size: 20px;
+              flex-shrink: 0;
+              cursor: pointer;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            }
+
+            .poi-mobile-expanded-input {
+              flex: 1;
+              height: 38px;
+              border-radius: 10px;
+              border: 1px solid rgba(255,255,255,0.2);
+              background: rgba(255,255,255,0.1);
+              color: #fff;
+              font-size: 14px;
+              padding: 0 12px;
+              outline: none;
+            }
+
+            .poi-mobile-recents {
+              margin-top: 14px;
+              flex-shrink: 0;
+            }
+
+            .poi-mobile-recent-row {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              padding: 10px 4px;
+              border-bottom: 1px solid rgba(255,255,255,0.08);
+            }
+
+            .poi-mobile-recent-text {
+              flex: 1;
+              text-align: left;
+              border: none;
+              background: transparent;
+              color: rgba(255,255,255,0.8);
+              font-size: 14px;
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              cursor: pointer;
+            }
+
+            .poi-mobile-recent-clock {
+              opacity: 0.6;
+              font-size: 13px;
+            }
+
+            .poi-mobile-recent-clear {
+              border: none;
+              background: transparent;
+              color: rgba(255,255,255,0.5);
+              font-size: 14px;
+              cursor: pointer;
+              padding: 4px;
+            }
+
+            .poi-mobile-grid {
+              margin-top: 18px;
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 14px;
+            }
+
+            .poi-mobile-grid-item {
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              gap: 8px;
+              border: none;
+              background: transparent;
+              cursor: pointer;
+              padding: 6px 2px;
+            }
+
+            .poi-mobile-grid-icon {
+              width: 56px;
+              height: 56px;
+              border-radius: 14px;
+              background: rgba(255,255,255,0.08);
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            }
+
+            .poi-mobile-grid-label {
+              font-size: 12px;
+              font-weight: 600;
+              color: rgba(255,255,255,0.85);
+              text-align: center;
+              line-height: 1.25;
+            }
+
+            .poi-mobile-results {
+              margin-top: 16px;
+              display: grid;
+              gap: 6px;
+            }
+
+            .poi-mobile-result-row {
+              text-align: left;
+              border: 1px solid rgba(255,255,255,0.1);
+              background: rgba(255,255,255,0.05);
+              border-radius: 10px;
+              padding: 10px 12px;
+              cursor: pointer;
+            }
+
+            .poi-mobile-result-name {
+              color: #fff;
+              font-size: 14px;
+              font-weight: 700;
+            }
+
+            .poi-mobile-result-sub {
+              color: rgba(255,255,255,0.6);
+              font-size: 12px;
+              margin-top: 2px;
+            }
+
+            .poi-mobile-result-floor {
+              color: rgba(255,255,255,0.5);
+              font-size: 11px;
+              margin-top: 4px;
             }
           }
         `}
