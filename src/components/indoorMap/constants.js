@@ -24,5 +24,16 @@ export const TREE_MODEL_ROTATION_OFFSET_RAD = 0;
 export const TREE_MODEL_UPRIGHT_ROLL_RAD = -Math.PI ;
 
 
+export const CAR_MODEL_LENGTH_M = 4.2;
+export const CAR_MODEL_WIDTH_M = 1.8;
+export const CAR_MODEL_HEIGHT_M = 1.5;
+export const CAR_MODEL_ROTATION_OFFSET_RAD = 0;
+export const CAR_MODEL_UPRIGHT_ROLL_RAD = -Math.PI;
+
+// Approx area (m²) one parked car occupies, used to scale how many cars
+// get scattered per parking polygon (rough estimate, includes spacing).
+export const CAR_FOOTPRINT_AREA_M2 = 50;
+export const CAR_MIN_COUNT = 2;
+export const CAR_MAX_COUNT = 12;
 // Fixed pixel size (in metres equivalent) for boundary logos
 export const BOUNDARY_LOGO_SIZE_M = 20;

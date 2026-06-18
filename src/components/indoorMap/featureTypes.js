@@ -65,3 +65,16 @@ export const isGreenAreaFeature = (feature) => {
 export const getTreeModelUrl = () => {
   return "/assets/models/tree.glb";
 };
+export const isParkingFeature = (feature) => {
+  const p = feature?.properties || {};
+  const type = String(p.type || p.polygonType || "").toLowerCase();
+  return type === "parking" || type.includes("parking");
+};
+
+export const isParkingPolygonFeature = (feature) => {
+  return isParkingFeature(feature) && isPolygonFeature(feature);
+};
+
+export const getCarModelUrl = () => {
+  return "/assets/models/car.glb";
+};

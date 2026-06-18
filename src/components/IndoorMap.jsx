@@ -25,6 +25,7 @@ import {
   buildPointImagePlanes,
 } from "./indoorMap/PlaneRenderer";
 import {
+  buildCarPlacements,
   buildEscalatorPlacements,
   buildSittingAreaPlacements,
   buildTreePlacements,
@@ -714,6 +715,7 @@ const firstRealStep = 0;
       "escalator-model-3d-",
       "sitting-area-model-3d-",
       "tree-model-3d-",
+      "car-model-3d-",  
     ];
     allFloors.forEach((f) => {
       customLayerPrefixes.forEach((prefix) => {
@@ -984,6 +986,10 @@ const baseOffset =
         addTrackedGltfLayer(`tree-model-3d-${floorIndex}-${index}`, modelUrl, placements);
       });
 
+      const carPlacementsByModel = buildCarPlacements(floorFeatures);          // ADDED
+      Array.from(carPlacementsByModel.entries()).forEach(([modelUrl, placements], index) => {  // ADDED
+        addTrackedGltfLayer(`car-model-3d-${floorIndex}-${index}`, modelUrl, placements);        // ADDED
+      }); 
       // ── 3. SECTIONS (3D) ────────────────────────────────────────────────────
       map.addSource(`section-src-${floorIndex}`, {
         type: "geojson",

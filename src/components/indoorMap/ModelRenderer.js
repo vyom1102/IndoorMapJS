@@ -7,6 +7,8 @@ import {
   isSittingAreaFeature,
    getTreeModelUrl,
   isGreenAreaFeature,
+  isParkingPolygonFeature,
+  getCarModelUrl,
 } from "./featureTypes";
 import {
   getPoleOfInaccessibility,
@@ -30,6 +32,14 @@ import {
   TREE_MODEL_ROTATION_OFFSET_RAD,
   TREE_MODEL_UPRIGHT_ROLL_RAD,
   TREE_MODEL_WIDTH_M,
+  CAR_MODEL_HEIGHT_M,
+  CAR_MODEL_LENGTH_M,
+  CAR_MODEL_ROTATION_OFFSET_RAD,
+  CAR_MODEL_UPRIGHT_ROLL_RAD,
+  CAR_MODEL_WIDTH_M,
+  CAR_FOOTPRINT_AREA_M2,
+  CAR_MIN_COUNT,
+  CAR_MAX_COUNT,
 } from "./constants";
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import { point } from "@turf/helpers";
@@ -181,6 +191,7 @@ const generateTreePoints = (polygonFeature, count = 5) => {
 
   return points;
 };
+const generateScatterPoints = generateTreePoints;
 export const buildTreePlacements = (floorFeatures) => {
   const treePlacementsByModel = new Map();
 
@@ -218,4 +229,55 @@ export const buildTreePlacements = (floorFeatures) => {
   }
 
   return treePlacementsByModel;
+};
+
+export const buildCarPlacements = (floorFeatures) => {
+  const carPlacementsByModel = new Map();
+
+  const parkingAreas = floorFeatures.filter(isParkingPolygonFeature);
+
+  for (const feature of parkingAreas) {
+    const p = feature.properties || {};
+    const modelUrl = getCarModelUrl();
+
+    // Scale car count to the polygon's footprint, clamped to a sane range.
+    let carCount = CAR_MIN_COUNT;
+    try {
+      const areaM2 = area(feature);
+      carCount = Math.round(areaM2 / CAR_FOOTPRINT_AREA_M2);
+    } catch {
+      carCount = CAR_MIN_COUNT;
+    }
+    carCount = Math.min(CAR_MAX_COUNT, Math.max(CAR_MIN_COUNT, carCount));
+
+    const scatterPoints = generateScatterPoints(feature, carCount);
+    if (!scatterPoints.length) continue;
+
+    const baseHeight = getFeatureBaseHeight(p) + 0.02;
+    const rotationRad = getPolygonRotationRad(feature.geometry);
+
+    const placements = carPlacementsByModel.get(modelUrl) || [];
+
+    for (const coords of scatterPoints) {
+      // small per-car yaw jitter (+/- ~8°) so cars don't look cloned
+      const jitter = (Math.random() - 0.5) * (Math.PI / 22.5);
+
+      placements.push({
+        center: coords,
+        z: baseHeight,
+        rot: rotationRad + jitter,
+        footprint: {
+          lengthM: CAR_MODEL_LENGTH_M,
+          widthM: CAR_MODEL_WIDTH_M,
+          heightM: CAR_MODEL_HEIGHT_M,
+        },
+        rotationOffsetRad: CAR_MODEL_ROTATION_OFFSET_RAD,
+        uprightRollRad: CAR_MODEL_UPRIGHT_ROLL_RAD,
+      });
+    }
+
+    carPlacementsByModel.set(modelUrl, placements);
+  }
+
+  return carPlacementsByModel;
 };
