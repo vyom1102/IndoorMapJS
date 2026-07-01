@@ -490,6 +490,121 @@ function TappedObjectPanel({ name, onGetDirections, onClose }) {
   );
 }
 
+function ParkingPanel({ parking, onGetDirections, onDelete, onClose }) {
+  return (
+    <div className="directions-panel-container">
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 8,
+          boxShadow: "0 18px 48px rgba(17, 24, 39, 0.18)",
+          border: "1px solid rgba(17, 24, 39, 0.08)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "16px 18px",
+            borderBottom: "1px solid #eef1f6",
+          }}
+        >
+          <div
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 10,
+              background: "#edf3ff",
+              color: "#2f57d6",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 20,
+              flexShrink: 0,
+            }}
+          >
+            🚗
+          </div>
+          <div
+            style={{
+              flex: 1,
+              fontSize: 16,
+              fontWeight: 800,
+              color: "#111827",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {parking ? "My Parking" : "Parking"}
+            <div style={{ fontSize: 12, color: "#667085", marginTop: 4 }}>{parking?.floorLabel || ""}</div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              width: 32,
+              height: 32,
+              border: "none",
+              borderRadius: 8,
+              background: "#f3f5f9",
+              color: "#6b7280",
+              fontSize: 18,
+              cursor: "pointer",
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            ✕
+          </button>
+        </div>
+        <div style={{ padding: "14px 18px 18px", display: "flex", gap: 10 }}>
+          <button
+            type="button"
+            onClick={onGetDirections}
+            style={{
+              flex: 1,
+              height: 42,
+              borderRadius: 8,
+              border: "none",
+              background: "#2f57d6",
+              color: "#fff",
+              fontWeight: 900,
+              fontSize: 14,
+              cursor: "pointer",
+              boxShadow: "0 10px 22px rgba(47, 87, 214, 0.28)",
+            }}
+          >
+            Get Directions
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            style={{
+              flex: 0,
+              height: 42,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+              color: "#dc3545",
+              fontWeight: 800,
+              padding: "0 12px",
+              cursor: "pointer",
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CategoryFilterPanel({
   categories,
   selectedCategories,
@@ -498,6 +613,11 @@ function CategoryFilterPanel({
   destResults,
   onDestSelect,
   onClearFilter,
+  parking,
+  onStartMarkParking,
+  markingParking,
+  onSetParkingAsDest,
+  onShowParkingPanel,
 }) {
   const [searchExpanded, setSearchExpanded] = useState(false);
   const [recentSearches, setRecentSearches] = useState([]);
@@ -640,6 +760,56 @@ function CategoryFilterPanel({
                 paddingRight: 4,
               }}
             >
+              {/* My Parking button as first category */}
+              <div>
+                <button
+                  onClick={() => {
+                    if (parking && parking.coord) {
+                      onShowParkingPanel && onShowParkingPanel(true);
+                    } else {
+                      onStartMarkParking && onStartMarkParking();
+                    }
+                    onClearFilter && onClearFilter();
+                  }}
+                  style={{
+                    padding: "12px 10px",
+                    borderRadius: 12,
+                    border: "1px solid transparent",
+                    background: parking ? "rgba(47, 87, 214, 0.3)" : "rgba(255, 255, 255, 0.08)",
+                    color: parking ? "#fff" : "rgba(255, 255, 255, 0.7)",
+                    cursor: "pointer",
+                    textAlign: "center",
+                    transition: "all 0.2s ease",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 8,
+                      background: parking ? "rgba(47, 87, 214, 0.4)" : "rgba(255,255,255,0.1)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    🚗
+                  </div>
+                  <span style={{ lineHeight: 1.2, wordBreak: "break-word" }}>{parking ? "My Parking" : "Mark Parking"}</span>
+                </button>
+                {markingParking && (
+                  <div style={{ marginTop: 8, color: "#fff", fontSize: 13 }}>
+                    Click anywhere on the map to mark your parking spot
+                  </div>
+                )}
+              </div>
+
               {categories.map((cat) => {
                 const isSelected = selectedCategories.includes(cat.name);
                 return (
@@ -748,7 +918,27 @@ function CategoryFilterPanel({
           <div className="poi-mobile-sheet">
             <div className="poi-mobile-sheet-handle" />
             <div className="poi-mobile-sheet-row">
-              {categories.map((cat) => {
+                {/* My Parking chip */}
+                <button
+                  className="poi-mobile-chip"
+                  onClick={() => {
+                    if (parking && parking.coord) {
+                      onShowParkingPanel && onShowParkingPanel(true);
+                    } else {
+                      onStartMarkParking && onStartMarkParking();
+                    }
+                  }}
+                >
+                  <div
+                    className="poi-mobile-chip-icon"
+                    style={{ background: parking ? "#2f57d6" : undefined }}
+                  >
+                    🚗
+                  </div>
+                  <span className="poi-mobile-chip-label">{parking ? "My Parking" : "Mark Parking"}</span>
+                </button>
+
+                {categories.map((cat) => {
                 const isSelected = selectedCategories.includes(cat.name);
                 return (
                   <button
@@ -833,6 +1023,22 @@ function CategoryFilterPanel({
 
           {!searchValue && (
             <div className="poi-mobile-grid">
+              <button
+                className="poi-mobile-grid-item"
+                onClick={() => {
+                  if (parking && parking.coord) {
+                    onShowParkingPanel && onShowParkingPanel(true);
+                  } else {
+                    onStartMarkParking && onStartMarkParking();
+                  }
+                }}
+              >
+                <div className="poi-mobile-grid-icon" style={{ background: parking ? "#2f57d6" : "rgba(255,255,255,0.08)" }}>
+                  🚗
+                </div>
+                <span className="poi-mobile-grid-label">{parking ? "My Parking" : "Mark Parking"}</span>
+              </button>
+
               {categories.map((cat) => {
                 const isSelected = selectedCategories.includes(cat.name);
                 return (
@@ -876,237 +1082,7 @@ function CategoryFilterPanel({
     </>
   );
 }
-// function CategoryFilterPanel({
-//   categories,
-//   selectedCategories,
-//   onCategoryToggle,
-//   onSearch,
-//   destResults,
-//   onDestSelect,
-//   onClearFilter,
-// }) {
-//   const hasActiveFilter = selectedCategories.length > 0;
-//   // When a filter is active, show the first selected category as the chip
-//   const activeCategory = hasActiveFilter
-//     ? categories.find((c) => c.name === selectedCategories[0])
-//     : null;
 
-//   return (
-//     <div className="directions-panel-container">
-//       <div
-//         style={{
-//           background: "#1a1a1a",
-//           borderRadius: 12,
-//           boxShadow: "0 18px 48px rgba(0, 0, 0, 0.3)",
-//           border: "1px solid rgba(255, 255, 255, 0.1)",
-//           overflow: "hidden",
-//           padding: "18px",
-//         }}
-//       >
-//         {/* Search input — always visible */}
-//         <input
-//           type="text"
-//           placeholder="🔍 Search for a point of interest"
-//           onChange={(e) => onSearch(e.target.value)}
-//           style={{
-//             width: "100%",
-//             height: 48,
-//             padding: "0 16px",
-//             borderRadius: 10,
-//             border: "1px solid rgba(255, 255, 255, 0.2)",
-//             background: "rgba(255, 255, 255, 0.1)",
-//             color: "#fff",
-//             fontSize: 14,
-//             outline: "none",
-//             marginBottom: 16,
-//             boxSizing: "border-box",
-//           }}
-//         />
-
-//         {hasActiveFilter && activeCategory ? (
-//           /* ── Active filter chip view ── */
-//           <div
-//             style={{
-//               display: "flex",
-//               alignItems: "center",
-//               gap: 10,
-//               padding: "10px 14px",
-//               borderRadius: 10,
-//               background: "rgba(47, 87, 214, 0.25)",
-//               border: "1.5px solid #2f57d6",
-//             }}
-//           >
-//             {/* Same icon as on the map */}
-//             <div
-//               style={{
-//                 width: 36,
-//                 height: 36,
-//                 borderRadius: 8,
-//                 background: "rgba(47, 87, 214, 0.35)",
-//                 display: "flex",
-//                 alignItems: "center",
-//                 justifyContent: "center",
-//                 flexShrink: 0,
-//               }}
-//             >
-//               <CategoryIcon category={activeCategory} size={22} />
-//             </div>
-
-//             <span
-//               style={{
-//                 flex: 1,
-//                 color: "#fff",
-//                 fontSize: 14,
-//                 fontWeight: 700,
-//               }}
-//             >
-//               {activeCategory.label}
-//             </span>
-
-//             {/* Clear filter button */}
-//             <button
-//               onClick={onClearFilter}
-//               aria-label="Clear filter"
-//               style={{
-//                 width: 28,
-//                 height: 28,
-//                 border: "none",
-//                 borderRadius: 6,
-//                 background: "rgba(255,255,255,0.12)",
-//                 color: "rgba(255,255,255,0.8)",
-//                 fontSize: 16,
-//                 cursor: "pointer",
-//                 display: "flex",
-//                 alignItems: "center",
-//                 justifyContent: "center",
-//                 flexShrink: 0,
-//               }}
-//             >
-//               ✕
-//             </button>
-//           </div>
-//         ) : (
-//           /* ── Category grid view ── */
-//           <div
-//             style={{
-//               display: "grid",
-//               gridTemplateColumns: "repeat(3, 1fr)",
-//               gap: 12,
-//               maxHeight: 320,
-//               overflowY: "auto",
-//               paddingRight: 4,
-//             }}
-//           >
-//             {categories.map((cat) => {
-//               const isSelected = selectedCategories.includes(cat.name);
-//               return (
-//                 <button
-//                   key={cat.name}
-//                   onClick={() => onCategoryToggle(cat)}
-//                   style={{
-//                     padding: "12px 10px",
-//                     borderRadius: 12,
-//                     border: isSelected ? "2px solid #2f57d6" : "1px solid transparent",
-//                     background: isSelected
-//                       ? "rgba(47, 87, 214, 0.3)"
-//                       : "rgba(255, 255, 255, 0.08)",
-//                     color: isSelected ? "#fff" : "rgba(255, 255, 255, 0.7)",
-//                     cursor: "pointer",
-//                     textAlign: "center",
-//                     transition: "all 0.2s ease",
-//                     display: "flex",
-//                     flexDirection: "column",
-//                     alignItems: "center",
-//                     gap: 6,
-//                     fontSize: 12,
-//                     fontWeight: 600,
-//                   }}
-//                 >
-//                   {/* Real map icon instead of emoji */}
-//                   <div
-//                     style={{
-//                       width: 36,
-//                       height: 36,
-//                       borderRadius: 8,
-//                       background: isSelected
-//                         ? "rgba(47, 87, 214, 0.4)"
-//                         : "rgba(255,255,255,0.1)",
-//                       display: "flex",
-//                       alignItems: "center",
-//                       justifyContent: "center",
-//                     }}
-//                   >
-//                     <CategoryIcon category={cat} size={22} />
-//                   </div>
-//                   <span style={{ lineHeight: 1.2, wordBreak: "break-word" }}>
-//                     {cat.label}
-//                   </span>
-//                 </button>
-//               );
-//             })}
-//           </div>
-//         )}
-
-//         {/* Search results */}
-//         {destResults && destResults.length > 0 && (
-//           <div
-//             style={{
-//               marginTop: 16,
-//               paddingTop: 16,
-//               borderTop: "1px solid rgba(255, 255, 255, 0.1)",
-//             }}
-//           >
-//             <div
-//               style={{
-//                 fontSize: 12,
-//                 fontWeight: 600,
-//                 color: "rgba(255, 255, 255, 0.5)",
-//                 marginBottom: 8,
-//               }}
-//             >
-//               Search Results
-//             </div>
-//             <div style={{ display: "grid", gap: 6, maxHeight: 200, overflowY: "auto" }}>
-//               {destResults.slice(0, 8).map((result, i) => (
-//                 <button
-//                   key={`${result.matchedText}-${i}`}
-//                   onClick={() => onDestSelect(result)}
-//                   style={{
-//                     padding: "10px 12px",
-//                     borderRadius: 8,
-//                     border: "1px solid rgba(255, 255, 255, 0.1)",
-//                     background: "rgba(255, 255, 255, 0.05)",
-//                     color: "#fff",
-//                     cursor: "pointer",
-//                     textAlign: "left",
-//                     fontSize: 13,
-//                     transition: "all 0.2s ease",
-//                   }}
-//                   onMouseEnter={(e) => {
-//                     e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
-//                   }}
-//                   onMouseLeave={(e) => {
-//                     e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
-//                   }}
-//                 >
-//                   <div style={{ fontWeight: 600 }}>{result.matchedText}</div>
-//                   {result.actualName !== result.matchedText && (
-//                     <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>
-//                       {result.actualName}
-//                     </div>
-//                   )}
-//                   <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>
-//                     {result.floorLabel}
-//                   </div>
-//                 </button>
-//               ))}
-//             </div>
-//           </div>
-//         )}
-//       </div>
-//     </div>
-//   );
-// }
 
 export default function IndoorMapUI({
   sourceQuery,
@@ -1137,12 +1113,19 @@ export default function IndoorMapUI({
   selectedCategories,
   onCategoryToggle,
   onClearFilter,
+  parking,
+  markingParking,
+  onStartMarkParking,
+  onStopMarkParking,
+  onSetParkingAsDest,
+  onDeleteParking,
 }) {
   const hasRoute = routeSummary?.hasRoute;
   const isNavigating = routeSummary?.isNavigating;
   const showStepsPreview = routeSummary?.showStepsPreview;
   const hasTappedFeature = !!tappedFeature && !isNavigating && !showStepsPreview;
-
+const [showFloors, setShowFloors] = useState(false);
+  const [showParkingPanel, setShowParkingPanel] = useState(false);
   return (
     <>
       <style>
@@ -1220,12 +1203,11 @@ export default function IndoorMapUI({
             }
 
             .floor-selector-container {
-              bottom: 8px !important;
-              right: 8px !important;
-              top: auto !important;
-              gap: 4px !important;
-              padding-bottom: 100px !important;
-            }
+            bottom: 140px !important;   /* move above category panel */
+            right: 8px !important;
+            top: auto !important;
+            gap: 4px !important;
+          }
 
             .floor-selector-container > div {
               padding: 3px !important;
@@ -1339,10 +1321,9 @@ export default function IndoorMapUI({
             }
 
             .floor-selector-container {
-              bottom: 6px !important;
+              bottom: 120px !important;
               right: 6px !important;
               gap: 3px !important;
-              padding-bottom: 80px !important;
             }
 
             .floor-selector-container > div {
@@ -1653,6 +1634,59 @@ export default function IndoorMapUI({
 
       <div ref={containerRef} style={{ height: "100%" }} />
 
+      {/* Floating Mark Parking button */}
+      <div style={{ position: "absolute", right: 12, bottom: 120, zIndex: 40 }}>
+        <button
+          type="button"
+          onClick={() => {
+            if (markingParking) {
+              onStopMarkParking && onStopMarkParking();
+            } else if (parking && parking.coord) {
+              setShowParkingPanel(true);
+            } else {
+              onStartMarkParking && onStartMarkParking();
+            }
+          }}
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 28,
+            border: "none",
+            background: "#2f57d6",
+            color: "#fff",
+            fontSize: 22,
+            boxShadow: "0 14px 36px rgba(47,87,214,0.28)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          aria-label={markingParking ? "Cancel marking" : parking ? "My Parking" : "Mark Parking"}
+        >
+          🚗
+        </button>
+        {markingParking && (
+          <div style={{ marginTop: 8, textAlign: "center", background: "rgba(0,0,0,0.7)", color: "#fff", padding: "6px 8px", borderRadius: 8, fontSize: 13 }}>
+            Click anywhere on the map to mark your parking spot
+          </div>
+        )}
+      </div>
+
+      {showParkingPanel && parking && (
+        <ParkingPanel
+          parking={parking}
+          onGetDirections={() => {
+            onSetParkingAsDest && onSetParkingAsDest();
+            setShowParkingPanel(false);
+          }}
+          onDelete={() => {
+            onDeleteParking && onDeleteParking();
+            setShowParkingPanel(false);
+          }}
+          onClose={() => setShowParkingPanel(false)}
+        />
+      )}
+
       {showStepsPreview && hasRoute && (
         <RouteStepsPanel
           routeSummary={routeSummary}
@@ -1797,6 +1831,7 @@ export default function IndoorMapUI({
             </div>
           </div>
         ) : (
+          showParkingPanel ? null : (
           <CategoryFilterPanel
             categories={poiCategories}
             selectedCategories={selectedCategories}
@@ -1805,7 +1840,14 @@ export default function IndoorMapUI({
             destResults={destResults}
             onDestSelect={onDestSelect}
             onClearFilter={onClearFilter}
+            parking={parking}
+            markingParking={markingParking}
+            onStartMarkParking={onStartMarkParking}
+            onStopMarkParking={onStopMarkParking}
+            onSetParkingAsDest={onSetParkingAsDest}
+            onShowParkingPanel={setShowParkingPanel}
           />
+          )
         )
       )}
 
@@ -1922,39 +1964,94 @@ export default function IndoorMapUI({
       )}
 
       {venueData?.floors?.length > 1 && (
-        <div className="floor-selector-container">
-          <div
+      <div className="floor-selector-container">
+        <div
+      style={{
+        display: "flex",
+        flexDirection:
+          typeof window !== "undefined" && window.innerWidth <= 768
+            ? "column"
+            : "column-reverse",
+        alignItems: "stretch",
+      }}
+    >
+          {/* Floor list expands upward */}
+          {showFloors && (
+            <div
             style={{
-              background: "#fff",
-              borderRadius: 8,
+              display: "flex",
+              flexDirection:
+                typeof window !== "undefined" && window.innerWidth <= 768
+                  ? "column-reverse"   // open upward on mobile
+                  : "column",          // open downward on desktop
+              gap: 4,
               padding: 6,
+              marginBottom:
+                typeof window !== "undefined" && window.innerWidth <= 768 ? 6 : 0,
+              marginTop:
+                typeof window !== "undefined" && window.innerWidth > 768 ? 6 : 0,
+              background: "#fff",
+              borderRadius: 12,
               boxShadow: "0 14px 36px rgba(24, 31, 52, 0.12)",
               border: "1px solid rgba(24, 31, 52, 0.08)",
-              display: "grid",
-              gap: 4,
             }}
           >
-             {[...venueData.floors].reverse().map((f) => (
-              <button
-                key={f}
-                onClick={() => onFloorSwitch(f)}
-                style={{
-                  height: 34,
-                  minWidth: 88,
-                  cursor: "pointer",
-                  borderRadius: 8,
-                  border: "none",
-                  background: f === floor ? "#2f57d6" : "#f1f4f9",
-                  color: f === floor ? "#fff" : "#1f2937",
-                  fontWeight: 900,
-                }}
-              >
-                {getFloorLabel(f)}
-              </button>
-            ))}
-          </div>
+              {/* {[...venueData.floors].reverse().map((f) => ( */}
+              {(
+      typeof window !== "undefined" && window.innerWidth > 768
+        ? [...venueData.floors].reverse() // desktop
+        : [...venueData.floors]           // mobile
+    ).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => {
+                    onFloorSwitch(f);
+                    setShowFloors(false);
+                  }}
+                  style={{
+                    height: 34,
+                    minWidth: 88,
+                    cursor: "pointer",
+                    borderRadius: 8,
+                    border: "none",
+                    background: f === floor ? "#2f57d6" : "#f1f4f9",
+                    color: f === floor ? "#fff" : "#1f2937",
+                    fontWeight: 900,
+                  }}
+                >
+                  {getFloorLabel(f)}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Toggle button stays fixed */}
+          <button
+            onClick={() => setShowFloors((prev) => !prev)}
+            style={{
+              height: 42,
+              minWidth: 88,
+              border: "none",
+              borderRadius: 12,
+              background: "#2f57d6",
+              color: "#fff",
+              fontWeight: 900,
+              cursor: "pointer",
+              boxShadow: "0 14px 36px rgba(24, 31, 52, 0.18)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "0 14px",
+            }}
+          >
+            <span>{getFloorLabel(floor)}</span>
+            <span style={{ fontSize: 12 }}>
+              {showFloors ? "▼" : "▲"}
+            </span>
+          </button>
         </div>
-      )}
+      </div>
+    )}
     </>
   );
 }

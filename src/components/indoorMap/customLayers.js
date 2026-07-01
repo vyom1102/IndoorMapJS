@@ -1,6 +1,7 @@
 import maplibregl from "maplibre-gl";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 
 import { BOUNDARY_LOGO_SIZE_M } from "./constants";
 
@@ -163,7 +164,14 @@ export const buildGltfModelLayer = (map, layerId, modelUrl, placements) => {
         };
       });
 
-      new GLTFLoader().load(
+      const loader = new GLTFLoader();
+      const dracoLoader = new DRACOLoader();
+      dracoLoader.setDecoderPath(
+        "https://www.gstatic.com/draco/v1/decoders/"
+      );
+      loader.setDRACOLoader(dracoLoader);
+
+      loader.load(
         modelUrl,
         (gltf) => {
           this.placements.forEach((placement) => {
@@ -174,10 +182,12 @@ export const buildGltfModelLayer = (map, layerId, modelUrl, placements) => {
             this.scene.add(model);
           });
           map.triggerRepaint();
+          dracoLoader.dispose();
         },
         undefined,
         (error) => {
           console.error(`Failed to load GLB model: ${modelUrl}`, error);
+          dracoLoader.dispose();
         }
       );
     },

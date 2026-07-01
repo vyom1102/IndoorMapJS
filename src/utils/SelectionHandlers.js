@@ -320,6 +320,42 @@ export const selectDest = async (
     return;
   }
 
+  // DIRECT COORDINATE (e.g. My Parking saved location)
+  if (item.coord && Array.isArray(item.coord) && item.coord.length >= 2) {
+    console.log("DIRECT COORD CLICKED", item.coord);
+    const coords = [Number(item.coord[0]), Number(item.coord[1])];
+    const targetFloor = item.floor ?? 0;
+
+    destFloorRef.current = targetFloor;
+
+    if (targetFloor !== floor) {
+      console.log("SWITCHING FLOOR FOR COORD", targetFloor);
+      await switchFloor(targetFloor);
+    }
+
+    if (!destRef.current) {
+      destRef.current = new maplibregl.Marker({ color: "red" })
+        .setLngLat(coords)
+        .addTo(map);
+    } else {
+      destRef.current.setLngLat(coords);
+      updateMarkerVisibilityForFloor(targetFloor);
+    }
+
+    setDestQuery(item.matchedText || item.actualName || "Destination");
+    setDestResults([]);
+
+    try {
+      map.flyTo({ center: coords, zoom: 20 });
+    } catch (e) {}
+
+    if (sourceRef.current && destRef.current) {
+      routeAfterFloorUpdate(handleRouting);
+    }
+
+    return;
+  }
+
   console.log(
     "INDOOR FEATURE CLICK"
   );

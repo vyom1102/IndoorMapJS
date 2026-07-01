@@ -237,7 +237,7 @@ export const renderDefaultPoiLayer = async (
       polygonType.includes("reception")
     ) {
       icon = "reception-default";
-      label = "Reception";
+      // label = "Reception";
     }
 
     if (!icon) continue;

@@ -412,6 +412,102 @@ export default function IndoorMap() {
     routeSteps,
   };
 const [destSelected, setDestSelected] = useState(false);
+  const [parking, setParking] = useState(null);
+  const [markingParking, setMarkingParking] = useState(false);
+  const parkingMarkerRef = useRef(null);
+
+  useEffect(() => {
+    // Restore parking from localStorage
+    try {
+      const raw = localStorage.getItem("my_parking");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.coord) && parsed.coord.length >= 2) {
+          setParking(parsed);
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+
+    // Render parking marker when parking changes
+    if (parking && parking.coord) {
+      // remove old
+      if (parkingMarkerRef.current) {
+        parkingMarkerRef.current.remove();
+        parkingMarkerRef.current = null;
+      }
+      const el = document.createElement("div");
+      el.style.width = "36px";
+      el.style.height = "36px";
+      el.style.borderRadius = "12px";
+      el.style.background = "rgba(47, 87, 214, 0.9)";
+      el.style.color = "#fff";
+      el.style.display = "flex";
+      el.style.alignItems = "center";
+      el.style.justifyContent = "center";
+      el.style.boxShadow = "0 8px 20px rgba(0,0,0,0.18)";
+      el.style.width = "44px";
+      el.style.height = "44px";
+      el.style.fontSize = "22px";
+      el.innerHTML = '🚗';
+      parkingMarkerRef.current = new maplibregl.Marker({ element: el, anchor: "center" })
+        .setLngLat(parking.coord)
+        .addTo(map);
+    } else {
+      if (parkingMarkerRef.current) {
+        parkingMarkerRef.current.remove();
+        parkingMarkerRef.current = null;
+      }
+    }
+  }, [parking, ready]);
+
+  const startMarkParking = () => {
+    setMarkingParking(true);
+  };
+
+  const stopMarkParking = () => {
+    setMarkingParking(false);
+  };
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+
+    const onMapClickForParking = (e) => {
+      if (!markingParking) return;
+      // use lngLat if available
+      const lngLat = e.lngLat || (e.lng && [e.lng, e.lat]);
+      if (!lngLat) return;
+      const coord = Array.isArray(lngLat) ? lngLat : [lngLat.lng, lngLat.lat];
+      if (!Number.isFinite(coord[0])) return;
+      const saved = {
+        coord,
+        floor: floor,
+        floorLabel: getFloorLabel(floor),
+        ts: Date.now(),
+      };
+      try {
+        localStorage.setItem("my_parking", JSON.stringify(saved));
+      } catch (err) {
+        // ignore
+      }
+      setParking(saved);
+      setMarkingParking(false);
+      // zoom to marker
+      try {
+        map.flyTo({ center: coord, zoom: 20 });
+      } catch (e) {}
+    };
+
+    map.on("click", onMapClickForParking);
+    return () => map.off("click", onMapClickForParking);
+  }, [markingParking, ready, floor]);
 
   const routeSummary = {
     hasRoute: routePoints.length > 1,
@@ -2380,6 +2476,32 @@ const getIconForCategory = (type) => {
         onNextStep={() => moveToRouteStep(routeStepIndex + 1)}
         containerRef={containerRef}
         tappedFeature={tappedFeature}
+        parking={parking}
+        markingParking={markingParking}
+        onStartMarkParking={startMarkParking}
+        onStopMarkParking={stopMarkParking}
+        onSetParkingAsDest={() => {
+          if (!parking || !parking.coord) return;
+          const item = {
+            matchedText: "My Parking",
+            actualName: "My Parking",
+            floorLabel: parking.floorLabel || getFloorLabel(parking.floor || floor),
+            coord: parking.coord,
+            floor: parking.floor ?? floor,
+            feature: null,
+          };
+          handleSelectDest(item);
+        }}
+          onDeleteParking={() => {
+            try {
+              localStorage.removeItem("my_parking");
+            } catch (e) {}
+            setParking(null);
+            if (parkingMarkerRef.current) {
+              parkingMarkerRef.current.remove();
+              parkingMarkerRef.current = null;
+            }
+          }}
         onSetTappedAsDest={handleSetTappedAsDest}
         onCloseTappedPanel={handleCloseTappedPanel}
         poiCategories={poiCategories}

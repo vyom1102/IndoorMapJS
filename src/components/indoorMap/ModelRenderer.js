@@ -22,6 +22,12 @@ import {
   ESCALATOR_MODEL_ROTATION_OFFSET_RAD,
   ESCALATOR_MODEL_UPRIGHT_ROLL_RAD,
   ESCALATOR_MODEL_WIDTH_M,
+  ESCALATOR_DOWN_MODEL_URL,
+  ESCALATOR_DOWN_MODEL_HEIGHT_M,
+  ESCALATOR_DOWN_MODEL_LENGTH_M,
+  ESCALATOR_DOWN_MODEL_ROTATION_OFFSET_RAD,
+  ESCALATOR_DOWN_MODEL_UPRIGHT_ROLL_RAD,
+  ESCALATOR_DOWN_MODEL_WIDTH_M,
   SITTING_AREA_MODEL_HEIGHT_M,
   SITTING_AREA_MODEL_LENGTH_M,
   SITTING_AREA_MODEL_ROTATION_OFFSET_RAD,
@@ -46,6 +52,7 @@ import { point } from "@turf/helpers";
 import bbox from "@turf/bbox";
 export const buildEscalatorPlacements = (floorFeatures) => {
   const escalatorPointByPolygonId = new Map();
+  const escalatorPointById = new Map();
   const escalatorPlacementsByModel = new Map();
 
   for (const feature of floorFeatures) {
@@ -53,6 +60,11 @@ export const buildEscalatorPlacements = (floorFeatures) => {
     if (!isEscalatorFeature(feature)) continue;
 
     const p = feature.properties || {};
+    const pointId = String(feature.id || feature._id || p.id || p._id || "");
+    if (pointId) {
+      escalatorPointById.set(pointId, feature);
+    }
+
     const polygonIds = [
       ...(p.associatedPolygons || []),
       ...(feature.associatedPolygons || []),
@@ -69,12 +81,26 @@ export const buildEscalatorPlacements = (floorFeatures) => {
 
   for (const feature of escalatorFeatures) {
     const p = feature.properties || {};
-    const modelUrl = getEscalatorModelUrl(feature);
-    if (!modelUrl) continue;
-
     const polygonId = String(
       feature.id || feature._id || p.id || p._id || ""
     );
+    let pointFeature = escalatorPointByPolygonId.get(polygonId);
+
+    if (!pointFeature) {
+      const associatedPointIds = [
+        ...(p.associatedPoints || []),
+        ...(feature.associatedPoints || []),
+      ].map(String);
+      for (const pointId of associatedPointIds) {
+        if (escalatorPointById.has(pointId)) {
+          pointFeature = escalatorPointById.get(pointId);
+          break;
+        }
+      }
+    }
+
+    const modelUrl = getEscalatorModelUrl(feature, pointFeature);
+    if (!modelUrl) continue;
 
     const polygonCenter =
       (Array.isArray(p.centroid) ? p.centroid : null) ||
@@ -83,7 +109,7 @@ export const buildEscalatorPlacements = (floorFeatures) => {
 
     if (!polygonCenter) continue;
 
-    const pointFeature = escalatorPointByPolygonId.get(polygonId);
+    // const pointFeature = escalatorPointByPolygonId.get(polygonId);
 
     let placementCoords;
     let rotationRad;
@@ -114,18 +140,30 @@ export const buildEscalatorPlacements = (floorFeatures) => {
 
     if (!placementCoords) continue;
 
+    const isDownEscalator = modelUrl === ESCALATOR_DOWN_MODEL_URL;
+
     const placements = escalatorPlacementsByModel.get(modelUrl) || [];
     placements.push({
       center: placementCoords,
       z: getFeatureBaseHeight(p) + 0.02,
       rot: rotationRad,
       footprint: {
-        lengthM: ESCALATOR_MODEL_LENGTH_M,
-        widthM: ESCALATOR_MODEL_WIDTH_M,
-        heightM: ESCALATOR_MODEL_HEIGHT_M,
+        lengthM: isDownEscalator
+          ? ESCALATOR_DOWN_MODEL_LENGTH_M
+          : ESCALATOR_MODEL_LENGTH_M,
+        widthM: isDownEscalator
+          ? ESCALATOR_DOWN_MODEL_WIDTH_M
+          : ESCALATOR_MODEL_WIDTH_M,
+        heightM: isDownEscalator
+          ? ESCALATOR_DOWN_MODEL_HEIGHT_M
+          : ESCALATOR_MODEL_HEIGHT_M,
       },
-      rotationOffsetRad: ESCALATOR_MODEL_ROTATION_OFFSET_RAD,
-      uprightRollRad: ESCALATOR_MODEL_UPRIGHT_ROLL_RAD,
+      rotationOffsetRad: isDownEscalator
+        ? ESCALATOR_DOWN_MODEL_ROTATION_OFFSET_RAD
+        : ESCALATOR_MODEL_ROTATION_OFFSET_RAD,
+      uprightRollRad: isDownEscalator
+        ? ESCALATOR_DOWN_MODEL_UPRIGHT_ROLL_RAD
+        : ESCALATOR_MODEL_UPRIGHT_ROLL_RAD,
     });
     escalatorPlacementsByModel.set(modelUrl, placements);
   }
