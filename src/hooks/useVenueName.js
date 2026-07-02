@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useLocation, useParams } from "react-router-dom";
 
-export const DEFAULT_VENUE_NAME = "DelhiMetro";
+export const DEFAULT_VENUE_NAME = "SalarjungMuseum";
 
 /**
  * Venue from URL — supports:

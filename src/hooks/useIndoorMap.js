@@ -16,9 +16,9 @@ import {
   VENUE_LOAD_ZOOM,
 } from "../constants/mapDefaults";
 
-export function useIndoorMap(venueName = "DelhiMetro") {
+export function useIndoorMap(venueName = "SalarjungMuseum") {
   const { mapRef, containerRef, ready } = useMap();
-  const resolvedVenue = (venueName || "").trim() || "DelhiMetro";
+  const resolvedVenue = (venueName || "").trim() || "SalarjungMuseum";
 
   const [geo, setGeo] = useState(null);
   const [floor, setFloor] = useState(0);
