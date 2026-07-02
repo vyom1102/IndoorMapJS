@@ -1203,11 +1203,11 @@ const [showFloors, setShowFloors] = useState(false);
             }
 
             .floor-selector-container {
-            bottom: 140px !important;   /* move above category panel */
-            right: 8px !important;
-            top: auto !important;
-            gap: 4px !important;
-          }
+              bottom: 200px !important;   /* keep floor selector above parking button on mobile */
+              right: 8px !important;
+              top: auto !important;
+              gap: 4px !important;
+            }
 
             .floor-selector-container > div {
               padding: 3px !important;
@@ -1321,7 +1321,7 @@ const [showFloors, setShowFloors] = useState(false);
             }
 
             .floor-selector-container {
-              bottom: 120px !important;
+              bottom: 220px !important; /* small phones: keep floor selector higher */
               right: 6px !important;
               gap: 3px !important;
             }
@@ -1629,13 +1629,29 @@ const [showFloors, setShowFloors] = useState(false);
               margin-top: 4px;
             }
           }
+          /* Floating parking button positioning */
+          .floating-parking {
+            bottom: 100px; /* default fallback */
+          }
+
+          @media (max-width: 768px) {
+            .floating-parking {
+              bottom: 160px !important; /* parking button sits below floor selector */
+            }
+          }
+
+          @media (max-width: 480px) {
+            .floating-parking {
+              bottom: 160px !important; /* extra spacing for small phones */
+            }
+          }
         `}
       </style>
 
       <div ref={containerRef} style={{ height: "100%" }} />
 
       {/* Floating Mark Parking button */}
-      <div style={{ position: "absolute", right: 12, bottom: 120, zIndex: 40 }}>
+      <div className="floating-parking" style={{ position: "absolute", right: 12, zIndex: 40 }}>
         <button
           type="button"
           onClick={() => {

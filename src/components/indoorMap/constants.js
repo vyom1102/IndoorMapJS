@@ -1,4 +1,8 @@
-export const baseUrl = import.meta.env.VITE_BASE_URL || "";
+import { getRuntimeConfig } from "../../utils/runtimeConfig";
+
+const runtimeConfig = getRuntimeConfig();
+
+export const baseUrl = runtimeConfig.baseUrl || "";
 export const FIXED_GLB_SIZE_PX = 80;
 
 export const ESCALATOR_MODEL_URL =

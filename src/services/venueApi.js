@@ -1,7 +1,7 @@
 import axios from "axios";
+import { getRuntimeConfig } from "../utils/runtimeConfig";
 
-const baseUrl = import.meta.env.VITE_BASE_URL;
-const apiKey = import.meta.env.VITE_API_KEY;
+const { baseUrl, apiKey } = getRuntimeConfig();
 
 export const loadVenueData = async (venueName) => {
   try {

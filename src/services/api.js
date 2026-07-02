@@ -1,7 +1,8 @@
 
 import axios from "axios";
-const baseUrl = import.meta.env.VITE_BASE_URL;
-const apiKey = import.meta.env.VITE_API_KEY;
+import { getRuntimeConfig } from "../utils/runtimeConfig";
+
+const { baseUrl, apiKey } = getRuntimeConfig();
 
 export const getGeojsonData = async (venueName) => {
   const res = await axios.get(
