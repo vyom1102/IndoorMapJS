@@ -1342,18 +1342,10 @@ const baseOffset =
     }
   };
 
-  const startRender = () => {
-    map.resize();
-    requestAnimationFrame(() => {
-      map.resize();
-      render();
-    });
-  };
-
   if (!map.isStyleLoaded()) {
-    map.once("load", startRender);
+    map.once("load", render);
   } else {
-    startRender();
+    render();
   }
 
   return () => {
