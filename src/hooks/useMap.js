@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import {
   DEFAULT_MAP_CENTER,
@@ -10,10 +10,12 @@ export const useMap = () => {
   const containerRef = useRef(null);
   const [ready, setReady] = useState(false);
 
-  useEffect(() => {
-    if (mapRef.current) return;
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (mapRef.current || !container) return;
+
     const map = new maplibregl.Map({
-      container: containerRef.current,
+      container,
       style: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
       center: DEFAULT_MAP_CENTER,
       zoom: DEFAULT_MAP_ZOOM,
@@ -22,13 +24,25 @@ export const useMap = () => {
       maxZoom: 24,
       minZoom: 3,
     });
-    // map.addControl(new maplibregl.NavigationControl());
-    map.on("load", () => {
-      map.setMinZoom(13);
-      setReady(true);
-    });
-    mapRef.current = map;
-  },[]);
 
-  return {mapRef, containerRef, ready};
+    const handleLoad = () => {
+      map.setMinZoom(13);
+      map.resize();
+      requestAnimationFrame(() => map.resize());
+      setReady(true);
+    };
+
+    map.on("load", handleLoad);
+    mapRef.current = map;
+
+    return () => {
+      map.off("load", handleLoad);
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, [containerRef.current]);
+
+  return { mapRef, containerRef, ready };
 };
