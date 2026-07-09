@@ -19,11 +19,14 @@ export const useMap = () => {
       zoom: DEFAULT_MAP_ZOOM,
       pitch: 60,
       bearing: 0,
-      maxZoom:24,
-      minZoom: 13,
+      maxZoom: 24,
+      minZoom: 3,
     });
     // map.addControl(new maplibregl.NavigationControl());
-    map.on("load", ()=> setReady(true));
+    map.on("load", () => {
+      map.setMinZoom(13);
+      setReady(true);
+    });
     mapRef.current = map;
   },[]);
 

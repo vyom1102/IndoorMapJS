@@ -978,9 +978,9 @@ const baseOffset =
           "any",
           ["==", ["downcase", ["get", "type"]], "lift"],
           ["in", ["downcase", ["get", "type"]], ["literal", [
-            "cafeteria", "piller", "counter", "security check",
+             "piller", "counter", "security check",
             "male washroom", "female washroom", "unisex washroom",
-            "drinking water", "room", "accessible washroom",
+            "drinking water", "accessible washroom",
           ]]],
         ],
         [

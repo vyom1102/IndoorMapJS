@@ -1,7 +1,6 @@
 /** Default map center [lng, lat] before venue API loads */
-export const DEFAULT_MAP_CENTER = [77.20451273263606, 28.543355986530234];
-
-export const DEFAULT_MAP_ZOOM = 16;
+export const DEFAULT_MAP_CENTER = [78.8718, 21.7679];
+export const DEFAULT_MAP_ZOOM = 3;
 
 export const VENUE_LOAD_ZOOM = 18;
 

@@ -622,8 +622,11 @@ function CategoryFilterPanel({
   const [searchExpanded, setSearchExpanded] = useState(false);
   const [recentSearches, setRecentSearches] = useState([]);
   const [searchValue, setSearchValue] = useState("");
+  const [desktopCollapsed, setDesktopCollapsed] = useState(false);
 
   const hasActiveFilter = selectedCategories.length > 0;
+  const isDesktopView =
+    typeof window !== "undefined" && window.innerWidth > 768;
   const activeCategory = hasActiveFilter
     ? categories.find((c) => c.name === selectedCategories[0])
     : null;
@@ -669,35 +672,150 @@ function CategoryFilterPanel({
   return (
     <>
       {/* ── DESKTOP (unchanged) ── */}
-      <div className="poi-panel-desktop directions-panel-container">
+      {isDesktopView && desktopCollapsed ? (
         <div
           style={{
-            background: "#1a1a1a",
-            borderRadius: 12,
-            boxShadow: "0 18px 48px rgba(0, 0, 0, 0.3)",
-            border: "1px solid rgba(255, 255, 255, 0.1)",
-            overflow: "hidden",
-            padding: "18px",
+            position: "absolute",
+            top: 18,
+            left: 18,
+            zIndex: 20,
+            width: "360px",
+            maxWidth: "calc(100vw - 36px)",
           }}
         >
-          <input
-            type="text"
-            placeholder="🔍 Search for a point of interest"
-            onChange={(e) => onSearch(e.target.value)}
+          <div
             style={{
-              width: "100%",
-              height: 48,
-              padding: "0 16px",
-              borderRadius: 10,
-              border: "1px solid rgba(255, 255, 255, 0.2)",
-              background: "rgba(255, 255, 255, 0.1)",
-              color: "#fff",
-              fontSize: 14,
-              outline: "none",
-              marginBottom: 16,
-              boxSizing: "border-box",
+              background: "#1a1a1a",
+              borderRadius: 12,
+              boxShadow: "0 18px 48px rgba(0, 0, 0, 0.3)",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
+              padding: "18px",
             }}
-          />
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                marginBottom: 16,
+              }}
+            >
+              <input
+                type="text"
+                placeholder="🔍 Search for a point of interest"
+                value={searchValue}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                style={{
+                  flex: 1,
+                  height: 48,
+                  padding: "0 16px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255, 255, 255, 0.2)",
+                  background: "rgba(255, 255, 255, 0.1)",
+                  color: "#fff",
+                  fontSize: 14,
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setDesktopCollapsed(false)}
+                style={{
+                  border: "none",
+                  borderRadius: 10,
+                  padding: "12px 16px",
+                  background: "rgba(255, 255, 255, 0.08)",
+                  color: "#fff",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  minWidth: 120,
+                }}
+              >
+                Show filters
+              </button>
+            </div>
+            {destResults && destResults.length > 0 && (
+              <SearchResults results={destResults} onSelect={handleResultTap} />
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="poi-panel-desktop directions-panel-container">
+          <div
+            style={{
+              background: "#1a1a1a",
+              borderRadius: 12,
+              boxShadow: "0 18px 48px rgba(0, 0, 0, 0.3)",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
+              overflow: "hidden",
+              padding: "18px",
+            }}
+          >
+            {isDesktopView && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  marginBottom: 16,
+                }}
+              >
+                <input
+                  type="text"
+                  placeholder="🔍 Search for a point of interest"
+                  onChange={(e) => onSearch(e.target.value)}
+                  style={{
+                    flex: 1,
+                    height: 48,
+                    padding: "0 16px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255, 255, 255, 0.2)",
+                    background: "rgba(255, 255, 255, 0.1)",
+                    color: "#fff",
+                    fontSize: 14,
+                    outline: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setDesktopCollapsed(true)}
+                  style={{
+                    border: "none",
+                    borderRadius: 10,
+                    padding: "12px 16px",
+                    background: "rgba(255, 255, 255, 0.08)",
+                    color: "#fff",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    minWidth: 120,
+                  }}
+                >
+                  Collapse filters
+                </button>
+              </div>
+            )}
+            {!isDesktopView && (
+              <input
+                type="text"
+                placeholder="🔍 Search for a point of interest"
+                onChange={(e) => onSearch(e.target.value)}
+                style={{
+                  width: "100%",
+                  height: 48,
+                  padding: "0 16px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255, 255, 255, 0.2)",
+                  background: "rgba(255, 255, 255, 0.1)",
+                  color: "#fff",
+                  fontSize: 14,
+                  outline: "none",
+                  marginBottom: 16,
+                  boxSizing: "border-box",
+                }}
+              />
+            )}
 
           {hasActiveFilter && activeCategory ? (
             <div
@@ -889,7 +1007,7 @@ function CategoryFilterPanel({
           )}
         </div>
       </div>
-
+      )}
       {/* ── MOBILE: collapsed floating bar + peeking bottom sheet ── */}
       {!searchExpanded && (
         <div className="poi-mobile-collapsed">
