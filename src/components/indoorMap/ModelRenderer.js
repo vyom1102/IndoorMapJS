@@ -269,6 +269,34 @@ export const buildTreePlacements = (floorFeatures) => {
   return treePlacementsByModel;
 };
 
+// Point features carrying an inline `3dRef` primitive model (e.g. landmarks).
+export const buildLandmarkPrimitivePlacements = (floorFeatures) => {
+  const placements = [];
+
+  for (const feature of floorFeatures) {
+    if (feature.geometry?.type !== "Point") continue;
+
+    const p = feature.properties || {};
+    if (p.visible === false) continue;
+
+    const ref = p["3dRef"];
+    const primitives = ref?.["3d"];
+    if (!Array.isArray(primitives) || !primitives.length) continue;
+
+    const angleDeg =
+      (Number(p["3dModelAngle"]) || 0) + (Number(ref.rotation_y) || 0);
+
+    placements.push({
+      center: feature.geometry.coordinates,
+      z: getFeatureBaseHeight(p) + 0.02,
+      rot: (angleDeg * Math.PI) / 180,
+      primitives,
+    });
+  }
+
+  return placements;
+};
+
 export const buildCarPlacements = (floorFeatures) => {
   const carPlacementsByModel = new Map();
 

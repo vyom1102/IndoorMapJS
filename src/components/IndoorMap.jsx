@@ -27,6 +27,7 @@ import {
 import {
   buildCarPlacements,
   buildEscalatorPlacements,
+  buildLandmarkPrimitivePlacements,
   buildSittingAreaPlacements,
   buildTreePlacements,
 } from "./indoorMap/ModelRenderer";
@@ -42,6 +43,7 @@ import { getImageFileUrl } from "./indoorMap/assetUrls";
 import {
   buildGltfModelLayer,
   buildLogoPlaneLayer,
+  buildPrimitiveModelLayer,
 } from "./indoorMap/customLayers";
 import { searchPlaces } from "../utils/SearchEngine";
 import {
@@ -811,7 +813,8 @@ const firstRealStep = 0;
       "escalator-model-3d-",
       "sitting-area-model-3d-",
       "tree-model-3d-",
-      "car-model-3d-",  
+      "car-model-3d-",
+      "landmark-model-3d-",
     ];
     allFloors.forEach((f) => {
       customLayerPrefixes.forEach((prefix) => {
@@ -846,9 +849,14 @@ const firstRealStep = 0;
         l.id.startsWith("boundary-") ||
         l.id.startsWith("section-") ||
         l.id.startsWith("subsection-") ||
+        l.id.startsWith("pattern_") ||
         l.id.startsWith("default-poi")
       ) {
-        if (map.getLayer(l.id)) map.removeLayer(l.id);
+        try {
+          if (map.getLayer(l.id)) map.removeLayer(l.id);
+        } catch (e) {
+          console.warn(`Failed to remove layer ${l.id}`, e);
+        }
       }
     });
     const sources = map.getStyle()?.sources || {};
@@ -861,9 +869,26 @@ const firstRealStep = 0;
         id.startsWith("boundary-") ||
         id.startsWith("section-") ||
         id.startsWith("subsection-") ||
+        id.startsWith("pattern_") ||
         id.startsWith("default-poi")
       ) {
-        if (map.getSource(id)) map.removeSource(id);
+        if (!map.getSource(id)) return;
+        // Detach any layers still using this source (e.g. left behind by an
+        // aborted/stale render pass) so removeSource cannot throw.
+        (map.getStyle()?.layers || []).forEach((l) => {
+          if (l.source === id) {
+            try {
+              if (map.getLayer(l.id)) map.removeLayer(l.id);
+            } catch (e) {
+              console.warn(`Failed to remove layer ${l.id}`, e);
+            }
+          }
+        });
+        try {
+          map.removeSource(id);
+        } catch (e) {
+          console.warn(`Failed to remove source ${id}`, e);
+        }
       }
     });
 
@@ -1085,7 +1110,15 @@ const baseOffset =
       const carPlacementsByModel = buildCarPlacements(floorFeatures);          // ADDED
       Array.from(carPlacementsByModel.entries()).forEach(([modelUrl, placements], index) => {  // ADDED
         addTrackedGltfLayer(`car-model-3d-${floorIndex}-${index}`, modelUrl, placements);        // ADDED
-      }); 
+      });
+
+      // ── LANDMARK 3D PRIMITIVES (inline 3dRef models on point features) ─────
+      const landmarkPlacements = buildLandmarkPrimitivePlacements(floorFeatures);
+      if (landmarkPlacements.length) {
+        const landmarkLayerId = `landmark-model-3d-${floorIndex}`;
+        buildPrimitiveModelLayer(map, landmarkLayerId, landmarkPlacements);
+        customLayerIdsRef.current.push(landmarkLayerId);
+      }
       // ── 3. SECTIONS (3D) ────────────────────────────────────────────────────
       map.addSource(`section-src-${floorIndex}`, {
         type: "geojson",
@@ -1139,6 +1172,8 @@ const baseOffset =
         if (!f.properties?.pattern) return;
         const pat = addPatternImage(map, f.properties);
         const src = `pattern_${floorIndex}_${i}`;
+        if (map.getLayer(src)) map.removeLayer(src);
+        if (map.getSource(src)) map.removeSource(src);
         map.addSource(src, {
           type: "geojson",
           data: { type: "FeatureCollection", features: [f] },

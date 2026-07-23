@@ -219,6 +219,140 @@ export const buildGltfModelLayer = (map, layerId, modelUrl, placements) => {
   });
 };
 
+// Build a THREE.Group from a `3dRef.3d` primitive list
+// (Y-up metres: w/h/d sizes, ox/oy/oz offsets, optional ry degrees).
+const buildPrimitiveGroup = (primitives) => {
+  const group = new THREE.Group();
+
+  for (const prim of primitives || []) {
+    let geometry;
+    switch (prim.shape) {
+      case "cylinder":
+        geometry = new THREE.CylinderGeometry(
+          (prim.w ?? 1) / 2,
+          (prim.d ?? prim.w ?? 1) / 2,
+          prim.h ?? 1,
+          24
+        );
+        break;
+      case "sphere":
+        geometry = new THREE.SphereGeometry((prim.w ?? 1) / 2, 24, 16);
+        break;
+      case "box":
+      default:
+        geometry = new THREE.BoxGeometry(
+          prim.w ?? 1,
+          prim.h ?? 1,
+          prim.d ?? 1
+        );
+        break;
+    }
+
+    const material = new THREE.MeshStandardMaterial({
+      color: prim.color || "#cccccc",
+      roughness: prim.roughness ?? 0.8,
+      metalness: prim.metalness ?? 0,
+    });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(prim.ox || 0, prim.oy || 0, prim.oz || 0);
+    if (prim.ry) {
+      mesh.rotation.y = THREE.MathUtils.degToRad(prim.ry);
+    }
+    group.add(mesh);
+  }
+
+  return group;
+};
+
+export const buildPrimitiveModelLayer = (map, layerId, placements) => {
+  map.addLayer({
+    id: layerId,
+    type: "custom",
+    renderingMode: "3d",
+    onAdd: function (_map, gl) {
+      this.camera = new THREE.Camera();
+      this.scene = new THREE.Scene();
+      this.renderer = new THREE.WebGLRenderer({
+        canvas: _map.getCanvas(),
+        context: gl,
+        antialias: true,
+      });
+      this.renderer.autoClear = false;
+
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
+      directionalLight.position.set(0, -70, 100).normalize();
+      this.scene.add(ambientLight, directionalLight);
+
+      this.placements = placements.map((placement) => {
+        const mercator = maplibregl.MercatorCoordinate.fromLngLat(
+          { lng: placement.center[0], lat: placement.center[1] },
+          placement.z
+        );
+        const translate = new THREE.Matrix4().makeTranslation(
+          mercator.x,
+          mercator.y,
+          mercator.z
+        );
+        const rotateZ = new THREE.Matrix4().makeRotationAxis(
+          new THREE.Vector3(0, 0, 1),
+          placement.rot || 0
+        );
+        const rotateX = new THREE.Matrix4().makeRotationAxis(
+          new THREE.Vector3(1, 0, 0),
+          Math.PI / 2
+        );
+        const scale = mercator.meterInMercatorCoordinateUnits();
+        // -scale on Y mirrors once to cancel the projection matrix's Y-flip,
+        // keeping triangle winding correct. It must come BEFORE the rotations
+        // in the chain (i.e. applied after them), or it turns the model
+        // upside down instead.
+        const scaleMatrix = new THREE.Matrix4().makeScale(scale, -scale, scale);
+
+        const model = buildPrimitiveGroup(placement.primitives);
+        model.visible = false;
+        this.scene.add(model);
+
+        return {
+          matrix: translate
+            .multiply(scaleMatrix)
+            .multiply(rotateZ)
+            .multiply(rotateX),
+          model,
+        };
+      });
+
+      map.triggerRepaint();
+    },
+    render: function (_gl, matrix) {
+      const base = new THREE.Matrix4().fromArray(matrix);
+
+      this.renderer.state.reset();
+
+      this.placements.forEach((placement) => {
+        if (!placement.model) return;
+        placement.model.visible = true;
+        this.camera.projectionMatrix = base.clone().multiply(placement.matrix);
+        this.renderer.render(this.scene, this.camera);
+        placement.model.visible = false;
+      });
+      map.triggerRepaint();
+    },
+    onRemove: function () {
+      this.scene?.traverse?.((object) => {
+        object.geometry?.dispose?.();
+        if (Array.isArray(object.material)) {
+          object.material.forEach((material) => material?.dispose?.());
+        } else {
+          object.material?.dispose?.();
+        }
+      });
+      this.renderer?.dispose?.();
+    },
+  });
+};
+
 export const computePlaneScale = (widthM, heightM, aspect, coverFraction = 0.65) => {
   const maxWidth  = Math.max(0.3, widthM  * coverFraction);
   const maxHeight = Math.max(0.3, heightM * coverFraction);
