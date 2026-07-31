@@ -10,6 +10,7 @@ import {
   isParkingPolygonFeature,
   getCarModelUrl,
 } from "./featureTypes";
+import { resolveFurnitureRef } from "../../services/furnitureApi";
 import {
   getPoleOfInaccessibility,
   getPolygonCenter,
@@ -269,7 +270,11 @@ export const buildTreePlacements = (floorFeatures) => {
   return treePlacementsByModel;
 };
 
-// Point features carrying an inline `3dRef` primitive model (e.g. landmarks).
+// Point features carrying a `3dRef` primitive model (e.g. landmarks).
+//
+// `3dRef` is either an inline model object or an id string that identifies a
+// model in the venue's 3D model catalogue (fetched separately by
+// services/furnitureApi). resolveFurnitureRef handles both.
 export const buildLandmarkPrimitivePlacements = (floorFeatures) => {
   const placements = [];
 
@@ -279,7 +284,7 @@ export const buildLandmarkPrimitivePlacements = (floorFeatures) => {
     const p = feature.properties || {};
     if (p.visible === false) continue;
 
-    const ref = p["3dRef"];
+    const ref = resolveFurnitureRef(p["3dRef"]);
     const primitives = ref?.["3d"];
     if (!Array.isArray(primitives) || !primitives.length) continue;
 

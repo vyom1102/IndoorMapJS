@@ -16,6 +16,7 @@ import {
 import {
   isEscalatorFeature,
   isSittingAreaFeature,
+  isElementHidden,
 } from "../indoorMap/featureTypes";
 import maplibregl from "maplibre-gl";
 import * as THREE from "three";
@@ -119,6 +120,7 @@ export const renderDefaultPoiLayer = async (
 
   for (const feature of floorFeatures) {
     const p = feature.properties || {};
+    if (isElementHidden(feature)) continue;
 
     const geometryType = feature.geometry?.type || "";
     const type = String(p.type || p.polygonType || p.subType || "").toLowerCase();
@@ -416,6 +418,7 @@ export const renderLandmarkGlbObjects = (
 ) => {
   for (const feature of floorFeatures) {
     const p = feature.properties || {};
+    if (isElementHidden(feature)) continue;
     if (isEscalatorFeature(feature)) continue;
     if (isSittingAreaFeature(feature)) continue;
     if (!p.objectFile) continue;

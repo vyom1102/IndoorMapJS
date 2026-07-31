@@ -212,3 +212,16 @@ export const isParkingPolygonFeature = (feature) => {
 export const getCarModelUrl = () => {
   return "/assets/models/car.glb";
 };
+
+/**
+ * Features flagged `hideElement` get no 2D representation at all — no icon, no
+ * pill, no label, no GLB marker. Used for points that are drawn as extruded 3D
+ * furniture, where a marker sitting on top of the 3D object is unwanted.
+ *
+ * The flag arrives as either a boolean or the string "true" depending on how
+ * the property survived encoding, so both are accepted.
+ */
+export const isElementHidden = (feature) => {
+  const value = feature?.properties?.hideElement;
+  return value === true || value === "true";
+};

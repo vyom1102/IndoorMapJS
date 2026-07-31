@@ -344,6 +344,7 @@ import {
   computeFixedPlaneScale,
   computePlaneScale,
 } from "./customLayers";
+import { isElementHidden } from "./featureTypes";
 
 export const createTextTexture = async (text) => {
   return await new Promise((resolve) => {
@@ -612,6 +613,7 @@ export const buildPointImagePlanes = async (
 
   for (const pointFeature of imagedPoints) {
     const p = pointFeature.properties || {};
+    if (isElementHidden(pointFeature)) continue;
 
     const type = String(p.type || p.polygonType || "").toLowerCase();
 

@@ -2,6 +2,11 @@ import { useEffect, useState, useRef } from "react";
 import { useMap } from "./useMap";
 import { getGeojsonData } from "../services/api";
 import { loadVenueData } from "../services/venueApi";
+import {
+  fetchFurniture,
+  setFurnitureModels,
+  clearFurnitureModels,
+} from "../services/furnitureApi";
 import { splitFeatures } from "../utils/splitFeatures";
 import { fetchNearbyNodes } from "../services/FetchGraphAPI";
 import { dijkstra, findClosestNode } from "../utils/RouteFunctions";
@@ -94,13 +99,27 @@ export function useIndoorMap(venueName = "DelhiMetro") {
     };
   }, [resolvedVenue]);
 
-  // Fetch GeoJSON for venue
+  // Fetch GeoJSON + the venue's 3D model catalogue for venue.
+  //
+  // Both requests go out together (neither depends on the other), but `geo` is
+  // only published once the models are registered — features whose `3dRef` is
+  // an id string can't be resolved until the catalogue is in place, and a
+  // render kicked off before then would silently drop those 3D objects.
   useEffect(() => {
     if (!resolvedVenue) return;
 
     let cancelled = false;
-    getGeojsonData(resolvedVenue).then((res) => {
-      if (cancelled || !res?.data) return;
+    clearFurnitureModels();
+
+    const geoPromise = getGeojsonData(resolvedVenue);
+    const furniturePromise = fetchFurniture(resolvedVenue);
+
+    Promise.all([geoPromise, furniturePromise]).then(([res, furniture]) => {
+      if (cancelled) return;
+
+      setFurnitureModels(furniture);
+
+      if (!res?.data) return;
       setGeo({
         type: "FeatureCollection",
         features: res.data.data || res.data.features || [],

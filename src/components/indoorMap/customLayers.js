@@ -219,25 +219,85 @@ export const buildGltfModelLayer = (map, layerId, modelUrl, placements) => {
   });
 };
 
+// Radial segment count for round primitives. The Flutter side has no real
+// curved geometry — fill-extrusion only extrudes flat polygons — so cylinders
+// there are faked from a box footprint. WebGL has actual revolved geometry, so
+// round shapes here are built properly rather than mirroring that workaround.
+const CYLINDER_RADIAL_SEGMENTS = 48;
+const SPHERE_SEGMENTS = 32;
+
+// Radius for a round primitive. `r` is what the 3D-model API sends; w/d are
+// only consulted for older inline models that predate it.
+const getRadius = (prim) => prim.r ?? (prim.w ?? 1) / 2;
+
 // Build a THREE.Group from a `3dRef.3d` primitive list
-// (Y-up metres: w/h/d sizes, ox/oy/oz offsets, optional ry degrees).
+// (Y-up metres: w/h/d sizes, ox/oy/oz offsets, optional rx/ry/rz degrees).
 const buildPrimitiveGroup = (primitives) => {
   const group = new THREE.Group();
 
   for (const prim of primitives || []) {
     let geometry;
+    // Round primitives may be given an elliptical cross-section via w/d
+    // alongside r; applied as a post-build scale since the geometries
+    // themselves are circular.
+    let ellipseScale = null;
+
     switch (prim.shape) {
       case "cylinder":
+      case "tube": {
+        // A cylinder may taper: `rTop`/`rBottom` (or `r2` for the far end)
+        // override the uniform `r`. Defaults keep both ends equal.
+        const radius = getRadius(prim);
+        const radiusTop = prim.rTop ?? radius;
+        const radiusBottom = prim.rBottom ?? prim.r2 ?? radius;
+
         geometry = new THREE.CylinderGeometry(
-          (prim.w ?? 1) / 2,
-          (prim.d ?? prim.w ?? 1) / 2,
+          radiusTop,
+          radiusBottom,
           prim.h ?? 1,
-          24
+          CYLINDER_RADIAL_SEGMENTS,
+          1,
+          prim.openEnded === true
+        );
+
+        // Only treat w/d as an ellipse when an explicit radius was also given
+        // — otherwise w/d already produced the radius above.
+        if (prim.r != null && prim.w != null && prim.d != null) {
+          const diameter = radius * 2;
+          ellipseScale = [prim.w / diameter, 1, prim.d / diameter];
+        }
+        break;
+      }
+      case "cone": {
+        const radius = getRadius(prim);
+        geometry = new THREE.ConeGeometry(
+          radius,
+          prim.h ?? 1,
+          CYLINDER_RADIAL_SEGMENTS,
+          1,
+          prim.openEnded === true
         );
         break;
-      case "sphere":
-        geometry = new THREE.SphereGeometry((prim.w ?? 1) / 2, 24, 16);
+      }
+      case "sphere": {
+        const radius = getRadius(prim);
+        geometry = new THREE.SphereGeometry(
+          radius,
+          SPHERE_SEGMENTS,
+          SPHERE_SEGMENTS / 2
+        );
+
+        // Spheres squash into ellipsoids when w/h/d are supplied.
+        if (prim.r != null && (prim.w != null || prim.h != null || prim.d != null)) {
+          const diameter = radius * 2;
+          ellipseScale = [
+            prim.w != null ? prim.w / diameter : 1,
+            prim.h != null ? prim.h / diameter : 1,
+            prim.d != null ? prim.d / diameter : 1,
+          ];
+        }
         break;
+      }
       case "box":
       default:
         geometry = new THREE.BoxGeometry(
@@ -256,9 +316,10 @@ const buildPrimitiveGroup = (primitives) => {
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(prim.ox || 0, prim.oy || 0, prim.oz || 0);
-    if (prim.ry) {
-      mesh.rotation.y = THREE.MathUtils.degToRad(prim.ry);
-    }
+    if (prim.rx) mesh.rotation.x = THREE.MathUtils.degToRad(prim.rx);
+    if (prim.ry) mesh.rotation.y = THREE.MathUtils.degToRad(prim.ry);
+    if (prim.rz) mesh.rotation.z = THREE.MathUtils.degToRad(prim.rz);
+    if (ellipseScale) mesh.scale.set(...ellipseScale);
     group.add(mesh);
   }
 
