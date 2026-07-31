@@ -1377,14 +1377,46 @@ const baseOffset =
     }
   };
 
-  if (!map.isStyleLoaded()) {
-    map.once("load", render);
-  } else {
+  // Gate on the style *existing*, not on isStyleLoaded().
+  //
+  // MapLibre's isStyleLoaded() is false while ANY source cache still has tiles
+  // in flight — so on a large venue it stays false long after the map is
+  // perfectly usable. The old fallback here was `map.once("load", render)`, but
+  // "load" fires exactly once and has already fired by the time `ready` is
+  // true, so that listener never ran: the floor silently never rendered until
+  // some other dependency change (switching floors) re-ran this effect and
+  // happened to catch the map between tile loads.
+  //
+  // What render() actually needs is the style object to exist so layers and
+  // sources can be added; pending tiles are irrelevant.
+  const hasStyle = () => {
+    try {
+      return Boolean(map.getStyle()?.layers);
+    } catch {
+      return false;
+    }
+  };
+
+  let onStyleData = null;
+
+  if (hasStyle()) {
     render();
+  } else {
+    onStyleData = () => {
+      if (!isCurrentRender()) return;
+      if (!hasStyle()) return;
+      map.off("styledata", onStyleData);
+      onStyleData = null;
+      render();
+    };
+    // styledata fires repeatedly as the style is built up, so unlike "load"
+    // this cannot be missed by arriving late.
+    map.on("styledata", onStyleData);
   }
 
   return () => {
     cancelled = true;
+    if (onStyleData) map.off("styledata", onStyleData);
     zoomHandlers.forEach((handler) => map.off("zoom", handler));
   };
 }, [geo, floor, ready, routeRevision]);

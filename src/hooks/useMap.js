@@ -3,6 +3,10 @@ import maplibregl from "maplibre-gl";
 import {
   DEFAULT_MAP_CENTER,
   DEFAULT_MAP_ZOOM,
+  INDIA_BOUNDS,
+  INDIA_FIT_PADDING,
+  OVERVIEW_MIN_ZOOM,
+  OVERVIEW_PITCH,
 } from "../constants/mapDefaults";
 
 export const useMap = () => {
@@ -19,16 +23,28 @@ export const useMap = () => {
       style: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
       center: DEFAULT_MAP_CENTER,
       zoom: DEFAULT_MAP_ZOOM,
-      pitch: 60,
+      // Flat for the country view; the venue fly-in pitches into 3D.
+      pitch: OVERVIEW_PITCH,
       bearing: 0,
       maxZoom: 24,
-      minZoom: 3,
+      minZoom: OVERVIEW_MIN_ZOOM,
     });
 
     const handleLoad = () => {
-      map.setMinZoom(13);
+      // NOTE: minZoom is deliberately left at OVERVIEW_MIN_ZOOM here. Raising
+      // it clamps the current zoom on the spot, so setting the venue-level
+      // floor now would yank the map out of the country overview before the
+      // user ever sees it. useIndoorMap raises it once the fly-in lands.
       map.resize();
       requestAnimationFrame(() => map.resize());
+
+      // Frame the whole of India. Done after resize() so the fit is measured
+      // against the real container size rather than a 0x0 box.
+      map.fitBounds(INDIA_BOUNDS, {
+        padding: INDIA_FIT_PADDING,
+        animate: false,
+      });
+
       setReady(true);
     };
 

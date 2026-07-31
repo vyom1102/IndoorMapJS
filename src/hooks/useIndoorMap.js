@@ -19,6 +19,13 @@ import {
   DEFAULT_MAP_CENTER,
   getDefaultVenueCenter,
   VENUE_LOAD_ZOOM,
+  VENUE_PITCH,
+  VENUE_MIN_ZOOM,
+  VENUE_FLY_DURATION_MS,
+  INDIA_BOUNDS,
+  INDIA_FIT_PADDING,
+  OVERVIEW_MIN_ZOOM,
+  OVERVIEW_PITCH,
 } from "../constants/mapDefaults";
 
 export function useIndoorMap(venueName = "DelhiMetro") {
@@ -62,6 +69,19 @@ export function useIndoorMap(venueName = "DelhiMetro") {
     graphRef.current = null;
     sourceFloorRef.current = null;
     destFloorRef.current = null;
+    // Return to the country overview so switching venues replays the same
+    // India-wide → fly-in sequence. minZoom must drop first, or fitBounds is
+    // clamped to the previous venue's floor and nothing zooms out.
+    const map = mapRef.current;
+    if (map) {
+      map.setMinZoom(OVERVIEW_MIN_ZOOM);
+      map.jumpTo({ pitch: OVERVIEW_PITCH });
+      map.fitBounds(INDIA_BOUNDS, {
+        padding: INDIA_FIT_PADDING,
+        animate: false,
+      });
+    }
+
     sourceRef.current?.remove();
     destRef.current?.remove();
     sourceRef.current = null;
@@ -83,10 +103,29 @@ export function useIndoorMap(venueName = "DelhiMetro") {
       setVenueData(data);
       const map = mapRef.current;
       if (map) {
+        // Country overview → venue. Pitching in as part of the same flight
+        // reads as one continuous descent rather than a jump followed by a
+        // separate tilt.
         map.flyTo({
           center: [center.lng, center.lat],
           zoom: VENUE_LOAD_ZOOM,
+          pitch: VENUE_PITCH,
+          duration: VENUE_FLY_DURATION_MS,
+          essential: true,
         });
+
+        // Only now is it safe to raise the zoom floor — doing it earlier would
+        // have clamped the country overview away (see useMap).
+        // `on` rather than `once`: an early moveend (user grabbing the map
+        // mid-flight) would otherwise consume the one listener while still
+        // below the threshold, leaving minZoom never raised at all.
+        const applyVenueMinZoom = () => {
+          if (cancelled) return;
+          if (map.getZoom() < VENUE_MIN_ZOOM) return;
+          map.setMinZoom(VENUE_MIN_ZOOM);
+          map.off("moveend", applyVenueMinZoom);
+        };
+        map.on("moveend", applyVenueMinZoom);
       }
       const firstFloor = data.floors?.[0] || 0;
       floorRef.current = firstFloor;
