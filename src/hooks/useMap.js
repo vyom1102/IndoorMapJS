@@ -3,8 +3,6 @@ import maplibregl from "maplibre-gl";
 import {
   DEFAULT_MAP_CENTER,
   DEFAULT_MAP_ZOOM,
-  INDIA_BOUNDS,
-  INDIA_FIT_PADDING,
   OVERVIEW_MIN_ZOOM,
   OVERVIEW_PITCH,
 } from "../constants/mapDefaults";
@@ -37,13 +35,6 @@ export const useMap = () => {
       // user ever sees it. useIndoorMap raises it once the fly-in lands.
       map.resize();
       requestAnimationFrame(() => map.resize());
-
-      // Frame the whole of India. Done after resize() so the fit is measured
-      // against the real container size rather than a 0x0 box.
-      map.fitBounds(INDIA_BOUNDS, {
-        padding: INDIA_FIT_PADDING,
-        animate: false,
-      });
 
       setReady(true);
     };

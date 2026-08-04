@@ -1,26 +1,8 @@
 /** Default map center [lng, lat] before venue API loads — geographic centre of India */
 export const DEFAULT_MAP_CENTER = [78.8718, 21.7679];
 
-/**
- * Opening view: the whole country.
- *
- * A fixed zoom can't do this correctly — how much of India fits on screen
- * depends on the viewport, so a value tuned on desktop crops the country on a
- * phone. fitBounds() against the national bounding box gets it right on any
- * screen; DEFAULT_MAP_ZOOM is only the constructor's pre-fit value.
- *
- * Bounds run from the Arabian Sea coast in the west to Arunachal in the east,
- * and Indira Point in the south to Kashmir in the north.
- */
-export const INDIA_BOUNDS = [
-  [68.0, 6.5],   // south-west [lng, lat]
-  [97.5, 35.8],  // north-east [lng, lat]
-];
-
-/** Padding (px) around the country when fitting INDIA_BOUNDS */
-export const INDIA_FIT_PADDING = 24;
-
-export const DEFAULT_MAP_ZOOM = 4;
+/** Opening zoom — regional overview, no bounds fitting */
+export const DEFAULT_MAP_ZOOM = 3;
 
 /** Zoom used once we fly in to the resolved venue */
 export const VENUE_LOAD_ZOOM = 18;

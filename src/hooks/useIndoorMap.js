@@ -17,13 +17,12 @@ import {
 } from "../utils/routeDisplay";
 import {
   DEFAULT_MAP_CENTER,
+  DEFAULT_MAP_ZOOM,
   getDefaultVenueCenter,
   VENUE_LOAD_ZOOM,
   VENUE_PITCH,
   VENUE_MIN_ZOOM,
   VENUE_FLY_DURATION_MS,
-  INDIA_BOUNDS,
-  INDIA_FIT_PADDING,
   OVERVIEW_MIN_ZOOM,
   OVERVIEW_PITCH,
 } from "../constants/mapDefaults";
@@ -69,16 +68,16 @@ export function useIndoorMap(venueName = "DelhiMetro") {
     graphRef.current = null;
     sourceFloorRef.current = null;
     destFloorRef.current = null;
-    // Return to the country overview so switching venues replays the same
-    // India-wide → fly-in sequence. minZoom must drop first, or fitBounds is
-    // clamped to the previous venue's floor and nothing zooms out.
+    // Return to the overview so switching venues replays the same fly-in.
+    // minZoom must drop first, or the jump is clamped to the previous venue's
+    // floor and nothing zooms out.
     const map = mapRef.current;
     if (map) {
       map.setMinZoom(OVERVIEW_MIN_ZOOM);
-      map.jumpTo({ pitch: OVERVIEW_PITCH });
-      map.fitBounds(INDIA_BOUNDS, {
-        padding: INDIA_FIT_PADDING,
-        animate: false,
+      map.jumpTo({
+        center: DEFAULT_MAP_CENTER,
+        zoom: DEFAULT_MAP_ZOOM,
+        pitch: OVERVIEW_PITCH,
       });
     }
 
