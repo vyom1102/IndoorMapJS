@@ -745,7 +745,15 @@ const firstRealStep = 0;
       navigationMarkerRef.current = null;
     }
 
-    followCameraBehindPointer(map, pathPoints, activeGlobalIndex, floor);
+    const segmentEndIndex =
+      routeSteps[routeStepIndex + 1]?.pointIndex ?? pathPoints.length - 1;
+    followCameraBehindPointer(
+      map,
+      pathPoints,
+      activeGlobalIndex,
+      floor,
+      segmentEndIndex
+    );
   }, [
     floor,
     floorRenderReady,

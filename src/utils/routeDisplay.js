@@ -266,13 +266,15 @@ export const getLookAheadCoord = (pathCoords, activeGlobalIndex, targetFloor) =>
   return null;
 };
 
-const NAV_CAMERA_PADDING = { top: 120, bottom: 90, left: 400, right: 90 };
+// Symmetric, so the fitted bounds' centre lands in the middle of the screen.
+const NAV_CAMERA_PADDING = 90;
 
 export const followCameraBehindPointer = (
   map,
   pathCoords,
   activeGlobalIndex,
-  targetFloor
+  targetFloor,
+  segmentEndIndex = null
 ) => {
   if (!map) return;
 
@@ -292,14 +294,27 @@ export const followCameraBehindPointer = (
     ? bearing(currentPoint.coord, lookAhead)
     : map.getBearing();
 
-  map.easeTo({
-    center: currentPoint.coord,
+  // Frame the current segment while keeping the pointer dead centre: every
+  // segment point is added together with its mirror image about the pointer,
+  // which makes the pointer the centre of the resulting bounds by construction.
+  const [cx, cy] = currentPoint.coord;
+  const bounds = new maplibregl.LngLatBounds([cx, cy], [cx, cy]);
+  const endIndex =
+    segmentEndIndex == null ? activeGlobalIndex : segmentEndIndex;
+  for (let i = activeGlobalIndex; i <= endIndex && i < pathCoords.length; i += 1) {
+    const p = pathCoords[i];
+    if (p?.floor !== targetFloor || !isValidCoord(p.coord)) continue;
+    bounds.extend(p.coord);
+    bounds.extend([2 * cx - p.coord[0], 2 * cy - p.coord[1]]);
+  }
+
+  map.fitBounds(bounds, {
     bearing: routeBearing,
     pitch: 62,
-    zoom: Math.max(map.getZoom(), 20),
+    maxZoom: 20,
+    padding: NAV_CAMERA_PADDING,
     duration: 1000,
     essential: true,
-    padding: NAV_CAMERA_PADDING,
   });
 };
 
