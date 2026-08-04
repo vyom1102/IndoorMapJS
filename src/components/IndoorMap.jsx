@@ -45,7 +45,23 @@ import {
   buildLogoPlaneLayer,
   buildPrimitiveModelLayer,
 } from "./indoorMap/customLayers";
-import { searchPlaces } from "../utils/SearchEngine";
+import { searchPlaces, findPlaceById, getPlaceId } from "../utils/SearchEngine";
+
+// Keep ?source=/?destination= in sync with what is selected, so the URL is always shareable.
+const syncPlaceParam = (key, item) => {
+  const url = new URL(window.location.href);
+  const id = item ? getPlaceId(item.feature) : null;
+
+  if (id) {
+    url.searchParams.set(key, id);
+  } else {
+    url.searchParams.delete(key);
+  }
+
+  if (key === "destination") url.searchParams.delete("dest"); // alias, avoid two sources of truth
+
+  window.history.replaceState({}, "", url);
+};
 import {
   selectSource,
   selectDest,
@@ -675,6 +691,8 @@ const firstRealStep = 0;
     setDestQuery("");
     setSourceResults([]);
     setDestResults([]);
+    syncPlaceParam("source", null);
+    syncPlaceParam("destination", null);
   };
 
   useEffect(() => {
@@ -2395,8 +2413,9 @@ useEffect(() => {
 
   const handleSelectSource = (item) => {
   console.log("CALLER GEO SOURCE:", geo);
+  syncPlaceParam("source", item);
 
-  selectSource(
+  return selectSource(
     item,
     mapRef,
     sourceRef,
@@ -2415,11 +2434,12 @@ useEffect(() => {
 
 const handleSelectDest = (item) => {
   console.log("CALLER GEO DEST:", geo);
-setDestSelected(true); 
+setDestSelected(true);
+  syncPlaceParam("destination", item);
   // Clear category filter when destination is selected
   setSelectedCategories([]);
 
-  selectDest(
+  return selectDest(
     item,
     mapRef,
     destRef,
@@ -2436,6 +2456,30 @@ setDestSelected(true);
   );
 };
   
+// ?source=<featureId>&destination=<featureId> — preselect either end once the venue is loaded.
+const urlPlacesAppliedRef = useRef(false);
+useEffect(() => {
+  if (!ready || !geo?.features?.length || urlPlacesAppliedRef.current) return;
+
+  const params = new URLSearchParams(window.location.search);
+  const sourceItem = findPlaceById(geo, params.get("source"));
+  const destItem = findPlaceById(
+    geo,
+    params.get("destination") || params.get("dest")
+  );
+
+  if (!sourceItem && !destItem) return;
+  urlPlacesAppliedRef.current = true;
+
+  (async () => {
+    if (sourceItem) {
+      setDestSelected(true); // open the directions panel even if only a source was given
+      await handleSelectSource(sourceItem);
+    }
+    if (destItem) await handleSelectDest(destItem);
+  })();
+}, [ready, geo]);
+
 const handleSetTappedAsDest = () => {
     console.log("Tapped to set destination:", tappedFeature);
     

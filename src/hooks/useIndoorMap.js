@@ -330,9 +330,12 @@ export function useIndoorMap(venueName = "DelhiMetro") {
     console.log("DEST:", dest);
 
     const graph = await fetchNearbyNodes(src.lat, src.lng);
-    console.log("GRAPH:", graph);
+    console.log("GRAPH nodes:", graph ? Object.keys(graph).length : 0);
 
-    if (!graph) return;
+    if (!graph || !Object.keys(graph).length) {
+      console.warn("No routing graph for this location");
+      return;
+    }
 
     const srcPoint = {
       lng: src.lng,

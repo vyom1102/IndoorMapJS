@@ -99,6 +99,13 @@ export const findClosestNode = (
       return;
     }
 
+    if (
+      !Number.isFinite(node.lat) ||
+      !Number.isFinite(node.lng)
+    ) {
+      return; // key is not "lng,lat,floor"
+    }
+
     const d = distance(node, point);
 
     if (d < min) {

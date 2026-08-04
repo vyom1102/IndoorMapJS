@@ -1349,7 +1349,26 @@ const [showFloors, setShowFloors] = useState(false);
 
             .directions-panel-container h2 {
               font-size: 18px !important;
-              margin: 0 0 12px !important;
+              margin: 0 !important;
+            }
+
+            .directions-header-row {
+              margin-bottom: 10px !important;
+            }
+
+            .directions-summary-row span:first-child {
+              font-size: 17px !important;
+            }
+
+            .directions-summary-row > button {
+              height: 36px !important;
+              min-width: 84px !important;
+            }
+
+            .directions-summary-row > div > button {
+              height: 36px !important;
+              min-width: 68px !important;
+              margin-left: 6px !important;
             }
 
             .directions-panel-container input {
@@ -1850,17 +1869,42 @@ const [showFloors, setShowFloors] = useState(false);
               }}
             >
               <div style={{ padding: "18px 18px 14px" }}>
-                <h2
+                <div
+                  className="directions-header-row"
                   style={{
-                    margin: "0 0 16px",
-                    fontSize: 22,
-                    lineHeight: 1.1,
-                    color: "#111827",
-                    fontWeight: 800,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    marginBottom: 14,
                   }}
                 >
-                  Directions
-                </h2>
+                  <h2
+                    style={{
+                      margin: 0,
+                      fontSize: 22,
+                      lineHeight: 1.1,
+                      color: "#111827",
+                      fontWeight: 800,
+                    }}
+                  >
+                    Directions
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={onClearDirections}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: "#dc534a",
+                      fontSize: 13,
+                      fontWeight: 800,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
 
                 <div className="search-input-container" style={{ display: "grid", gap: 10 }}>
                   <div>
@@ -1886,22 +1930,6 @@ const [showFloors, setShowFloors] = useState(false);
                   </div>
                 </div>
 
-                <div style={{ marginTop: 14, textAlign: "right" }}>
-                  <button
-                    type="button"
-                    onClick={onClearDirections}
-                    style={{
-                      border: "none",
-                      background: "transparent",
-                      color: "#dc534a",
-                      fontSize: 13,
-                      fontWeight: 800,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Clear
-                  </button>
-                </div>
               </div>
 
               {hasRoute && (
@@ -1911,43 +1939,69 @@ const [showFloors, setShowFloors] = useState(false);
                     padding: "16px 18px 18px",
                   }}
                 >
-                  <h3
+                  <div
+                    className="directions-summary-row"
                     style={{
-                      margin: 0,
-                      fontSize: 24,
-                      lineHeight: 1.05,
-                      color: "#111827",
-                      fontWeight: 900,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12,
                     }}
                   >
-                    {routeSummary.duration}
-                  </h3>
-                  <div style={{ color: "#667085", fontSize: 13, marginTop: 4 }}>
-                    {routeSummary.distance}
-                  </div>
-                  <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-                    <button
-                      type="button"
-                      onClick={onOpenSteps}
+                    <div
                       style={{
-                        flex: 1,
-                        height: 42,
-                        borderRadius: 8,
-                        border: "1px solid #d9deeb",
-                        background: "#fff",
-                        color: "#1f2937",
-                        fontWeight: 800,
-                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        minWidth: 0,
                       }}
                     >
-                      Steps
-                    </button>
+                      <span
+                        style={{
+                          fontSize: 20,
+                          color: "#111827",
+                          fontWeight: 900,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {routeSummary.duration}
+                      </span>
+                      <span
+                        style={{
+                          color: "#667085",
+                          fontSize: 13,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {routeSummary.distance}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={onOpenSteps}
+                        style={{
+                          marginLeft: 8,
+                          height: 40,
+                          minWidth: 76,
+                          borderRadius: 8,
+                          border: "1px solid #d9deeb",
+                          background: "#fff",
+                          color: "#1f2937",
+                          fontSize: 13,
+                          fontWeight: 800,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                          flexShrink: 0,
+                        }}
+                      >
+                        Steps
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={onStartNavigation}
                       style={{
-                        flex: 1,
-                        height: 42,
+                        height: 40,
+                        minWidth: 96,
                         borderRadius: 8,
                         border: "none",
                         background: "#2f57d6",
@@ -1955,6 +2009,7 @@ const [showFloors, setShowFloors] = useState(false);
                         fontWeight: 900,
                         cursor: "pointer",
                         boxShadow: "0 10px 22px rgba(47, 87, 214, 0.28)",
+                        flexShrink: 0,
                       }}
                     >
                       Start

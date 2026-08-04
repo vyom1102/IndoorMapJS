@@ -234,6 +234,34 @@ export const searchGoogleNearbyPlaces = async (
   }
 };
 
+// The id a feature is addressable by in the ?source=/?destination= URL params.
+export const getPlaceId = (feature) => {
+  const p = feature?.properties || {};
+
+  const id = [feature?.id, feature?._id, p.id, p._id, p.landmarkId].find(
+    (v) => v != null && v !== ""
+  );
+
+  return id == null ? null : String(id);
+};
+
+// Find a feature by any of the ids it may carry (used by the ?source=/?destination= URL params).
+export const findPlaceById = (geo, id) => {
+  if (!geo?.features || !id) return null;
+
+  const target = String(id).trim();
+
+  const feature = geo.features.find((f) => {
+    const p = f.properties || {};
+
+    return [f.id, f._id, p.id, p._id, p.landmarkId].some(
+      (v) => v != null && String(v) === target
+    );
+  });
+
+  return feature ? { feature } : null;
+};
+
 export const searchPlaces = async (
   query,
   geo,
