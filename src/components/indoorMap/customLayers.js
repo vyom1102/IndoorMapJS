@@ -5,6 +5,27 @@ import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 
 import { BOUNDARY_LOGO_SIZE_M } from "./constants";
 
+/**
+ * Mercator origin for a layer, plus the matrix that shifts back to it.
+ *
+ * Mercator coordinates are ~0.7 while a metre is ~1e-8 of them. Put that
+ * offset in an object's model matrix and the shader does the arithmetic in
+ * float32, which has nowhere near the digits for it — geometry z-fights and
+ * flickers. So the shared offset is folded into the projection matrix on the
+ * CPU (float64) each frame, and object matrices only ever carry small,
+ * origin-relative values.
+ */
+const layerOrigin = (points) => {
+  const first = points[0];
+  const origin = first
+    ? { x: first.x, y: first.y, z: first.z }
+    : { x: 0, y: 0, z: 0 };
+  return {
+    origin,
+    matrix: new THREE.Matrix4().makeTranslation(origin.x, origin.y, origin.z),
+  };
+};
+
 export const buildLogoPlaneLayer = (map, layerId, planes) => {
   map.addLayer({
     id: layerId,
@@ -19,77 +40,112 @@ export const buildLogoPlaneLayer = (map, layerId, planes) => {
         antialias: true,
       });
       this.renderer.autoClear = false;
-      this.mesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(1, 1),
-        new THREE.MeshBasicMaterial({
-          side: THREE.DoubleSide,
-          transparent: true,
-          depthTest: false,
-          depthWrite: false,
-        })
-      );
-      this.scene.add(this.mesh);
 
-      this.planes = planes.map(({ center, texture, scaleX, scaleY, z, rot }) => {
-        const mercator = maplibregl.MercatorCoordinate.fromLngLat(
+      // One mesh per plane (geometry shared) so the whole layer is a single
+      // draw pass instead of one full scene render per logo.
+      this.geometry = new THREE.PlaneGeometry(1, 1);
+      this.rotationX = new THREE.Matrix4().makeRotationAxis(
+        new THREE.Vector3(1, 0, 0),
+        Math.PI
+      );
+      this.rotationZ = new THREE.Matrix4();
+
+      const mercators = planes.map(({ center, z }) =>
+        maplibregl.MercatorCoordinate.fromLngLat(
           { lng: center[0], lat: center[1] },
           z
-        );
+        )
+      );
+      const { origin, matrix: originMatrix } = layerOrigin(mercators);
+      this.originMatrix = originMatrix;
+
+      this.planes = planes.map(({ texture, scaleX, scaleY, rot }, index) => {
+        const mercator = mercators[index];
         const meterScale = mercator.meterInMercatorCoordinateUnits();
+        const mesh = new THREE.Mesh(
+          this.geometry,
+          new THREE.MeshBasicMaterial({
+            map: texture,
+            side: THREE.DoubleSide,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false,
+          })
+        );
+        // Matrices are driven by hand below; frustum culling can't be trusted
+        // once the camera's projection carries the whole mercator transform.
+        mesh.matrixAutoUpdate = false;
+        mesh.frustumCulled = false;
+        this.scene.add(mesh);
+
         return {
-          texture,
-          tx: mercator.x,
-          ty: mercator.y,
-          tz: mercator.z,
-          sx: meterScale * scaleX,
-          sy: meterScale * scaleY,
+          mesh,
+          tx: mercator.x - origin.x,
+          ty: mercator.y - origin.y,
+          tz: mercator.z - origin.z,
           rot: rot || 0,
+          scaleVec: new THREE.Vector3(meterScale * scaleX, meterScale * scaleY, 1),
         };
       });
     },
     render: function (_gl, matrix) {
-      const base = new THREE.Matrix4().fromArray(matrix);
       this.renderer.state.reset();
       this.renderer.clearDepth();
 
+      const normalizedBearing = ((map.getBearing() % 360) + 360) % 360;
+
       this.planes.forEach((plane) => {
-        this.mesh.material.map = plane.texture;
-        this.mesh.material.needsUpdate = true;
-
-        const rotationX = new THREE.Matrix4().makeRotationAxis(
-          new THREE.Vector3(1, 0, 0),
-          Math.PI
-        );
-        const normalizedBearing = ((map.getBearing() % 360) + 360) % 360;
-        const planeDeg = (((plane.rot || 0) * 180) / Math.PI + 360) % 360;
-
+        const planeDeg = ((plane.rot * 180) / Math.PI + 360) % 360;
         let delta = normalizedBearing - planeDeg;
         delta = ((delta + 540) % 360) - 180;
 
-        const shouldFlip = Math.abs(delta) > 90;
-        const finalRotation = (plane.rot || 0) + (shouldFlip ? Math.PI : 0);
-
-        const rotationZ = new THREE.Matrix4().makeRotationAxis(
+        // Flip the logo when the camera swings behind it so it never reads
+        // mirrored — bearing-dependent, hence recomputed each frame.
+        const finalRotation = plane.rot + (Math.abs(delta) > 90 ? Math.PI : 0);
+        this.rotationZ.makeRotationAxis(
           new THREE.Vector3(0, 0, 1),
           finalRotation
         );
-        const modelMatrix = new THREE.Matrix4()
-          .makeTranslation(plane.tx, plane.ty, plane.tz)
-          .multiply(rotationZ)
-          .multiply(rotationX)
-          .scale(new THREE.Vector3(plane.sx, plane.sy, 1));
 
-        this.camera.projectionMatrix = base.clone().multiply(modelMatrix);
-        this.renderer.render(this.scene, this.camera);
+        plane.mesh.matrix
+          .makeTranslation(plane.tx, plane.ty, plane.tz)
+          .multiply(this.rotationZ)
+          .multiply(this.rotationX)
+          .scale(plane.scaleVec);
+        plane.mesh.matrixWorldNeedsUpdate = true;
       });
 
-      map.triggerRepaint();
+      this.camera.projectionMatrix.fromArray(matrix).multiply(this.originMatrix);
+      this.renderer.render(this.scene, this.camera);
     },
     onRemove: function () {
-      this.mesh?.geometry?.dispose?.();
-      this.mesh?.material?.dispose?.();
+      this.geometry?.dispose?.();
+      this.planes?.forEach((plane) => plane.mesh.material?.dispose?.());
       this.renderer?.dispose?.();
     },
+  });
+};
+
+/**
+ * Draw each placement with its matrix folded into the camera's projection.
+ *
+ * The obvious alternative — put the placement matrix on the object and draw
+ * the whole scene once — is wrong twice over: the mercator offset would be
+ * evaluated in float32 by the shader (z-fighting), and three flips face
+ * culling for the negative-determinant Y-mirror when it sits in matrixWorld,
+ * which turns the models inside out. So: one pass per placement, matrices
+ * multiplied on the CPU in float64.
+ */
+const renderPlacements = function (matrix) {
+  this.renderer.state.reset();
+  this.base.fromArray(matrix);
+
+  this.placements.forEach((placement) => {
+    if (!placement.model) return;
+    placement.model.visible = true;
+    this.camera.projectionMatrix.multiplyMatrices(this.base, placement.matrix);
+    this.renderer.render(this.scene, this.camera);
+    placement.model.visible = false;
   });
 };
 
@@ -107,6 +163,40 @@ const fitGltfToFootprint = (object, footprint) => {
     -box.min.y * scaleY,
     -center.z * scaleZ
   );
+};
+
+/**
+ * Load a GLB once per URL for the lifetime of the page.
+ *
+ * The same model is placed by several layers (one per floor and per feature
+ * type) and every floor switch tears those layers down and rebuilds them, so
+ * without this the same file is re-downloaded and re-decoded constantly.
+ * Clones share the cached geometry and materials — which is why the layer must
+ * not dispose them on removal.
+ */
+const gltfCache = new Map();
+
+const loadGltf = (url) => {
+  if (!gltfCache.has(url)) {
+    const loader = new GLTFLoader();
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath("https://www.gstatic.com/draco/v1/decoders/");
+    loader.setDRACOLoader(dracoLoader);
+
+    gltfCache.set(
+      url,
+      new Promise((resolve, reject) => {
+        loader.load(url, resolve, undefined, reject);
+      })
+        .finally(() => dracoLoader.dispose())
+        // Don't cache a failure — the next layer should get another attempt.
+        .catch((error) => {
+          gltfCache.delete(url);
+          throw error;
+        })
+    );
+  }
+  return gltfCache.get(url);
 };
 
 export const buildGltfModelLayer = (map, layerId, modelUrl, placements) => {
@@ -128,6 +218,8 @@ export const buildGltfModelLayer = (map, layerId, modelUrl, placements) => {
       const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
       directionalLight.position.set(0, -70, 100).normalize();
       this.scene.add(ambientLight, directionalLight);
+
+      this.base = new THREE.Matrix4();
 
       this.placements = placements.map((placement) => {
         const mercator = maplibregl.MercatorCoordinate.fromLngLat(
@@ -164,16 +256,10 @@ export const buildGltfModelLayer = (map, layerId, modelUrl, placements) => {
         };
       });
 
-      const loader = new GLTFLoader();
-      const dracoLoader = new DRACOLoader();
-      dracoLoader.setDecoderPath(
-        "https://www.gstatic.com/draco/v1/decoders/"
-      );
-      loader.setDRACOLoader(dracoLoader);
-
-      loader.load(
-        modelUrl,
-        (gltf) => {
+      this.removed = false;
+      loadGltf(modelUrl)
+        .then((gltf) => {
+          if (this.removed) return;
           this.placements.forEach((placement) => {
             const model = gltf.scene.clone(true);
             fitGltfToFootprint(model, placement.footprint);
@@ -182,38 +268,18 @@ export const buildGltfModelLayer = (map, layerId, modelUrl, placements) => {
             this.scene.add(model);
           });
           map.triggerRepaint();
-          dracoLoader.dispose();
-        },
-        undefined,
-        (error) => {
+        })
+        .catch((error) => {
           console.error(`Failed to load GLB model: ${modelUrl}`, error);
-          dracoLoader.dispose();
-        }
-      );
+        });
     },
     render: function (_gl, matrix) {
-      const base = new THREE.Matrix4().fromArray(matrix);
-
-      this.renderer.state.reset();
-
-      this.placements.forEach((placement) => {
-        if (!placement.model) return;
-        placement.model.visible = true;
-        this.camera.projectionMatrix = base.clone().multiply(placement.matrix);
-        this.renderer.render(this.scene, this.camera);
-        placement.model.visible = false;
-      });
-      map.triggerRepaint();
+      renderPlacements.call(this, matrix);
     },
     onRemove: function () {
-      this.scene?.traverse?.((object) => {
-        object.geometry?.dispose?.();
-        if (Array.isArray(object.material)) {
-          object.material.forEach((material) => material?.dispose?.());
-        } else {
-          object.material?.dispose?.();
-        }
-      });
+      // Geometry/materials belong to the cached GLB and are shared with every
+      // other placement of it, so only the renderer is ours to dispose.
+      this.removed = true;
       this.renderer?.dispose?.();
     },
   });
@@ -346,6 +412,8 @@ export const buildPrimitiveModelLayer = (map, layerId, placements) => {
       directionalLight.position.set(0, -70, 100).normalize();
       this.scene.add(ambientLight, directionalLight);
 
+      this.base = new THREE.Matrix4();
+
       this.placements = placements.map((placement) => {
         const mercator = maplibregl.MercatorCoordinate.fromLngLat(
           { lng: placement.center[0], lat: placement.center[1] },
@@ -387,18 +455,7 @@ export const buildPrimitiveModelLayer = (map, layerId, placements) => {
       map.triggerRepaint();
     },
     render: function (_gl, matrix) {
-      const base = new THREE.Matrix4().fromArray(matrix);
-
-      this.renderer.state.reset();
-
-      this.placements.forEach((placement) => {
-        if (!placement.model) return;
-        placement.model.visible = true;
-        this.camera.projectionMatrix = base.clone().multiply(placement.matrix);
-        this.renderer.render(this.scene, this.camera);
-        placement.model.visible = false;
-      });
-      map.triggerRepaint();
+      renderPlacements.call(this, matrix);
     },
     onRemove: function () {
       this.scene?.traverse?.((object) => {
