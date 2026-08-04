@@ -1360,15 +1360,13 @@ const [showFloors, setShowFloors] = useState(false);
               font-size: 17px !important;
             }
 
-            .directions-summary-row > button {
-              height: 36px !important;
-              min-width: 84px !important;
+            .directions-summary-row {
+              gap: 8px !important;
             }
 
-            .directions-summary-row > div > button {
+            .directions-summary-row button {
               height: 36px !important;
-              min-width: 68px !important;
-              margin-left: 6px !important;
+              min-width: 72px !important;
             }
 
             .directions-panel-container input {
@@ -1907,26 +1905,49 @@ const [showFloors, setShowFloors] = useState(false);
                 </div>
 
                 <div className="search-input-container" style={{ display: "grid", gap: 10 }}>
-                  <div>
-                    <input
-                      aria-label="Source"
-                      placeholder="Choose starting point"
-                      value={sourceQuery}
-                      onChange={(e) => onSourceSearch(e.target.value)}
-                      style={searchInputStyle}
+                  {/* dots mirror the map markers: green = start, red = destination */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: "50%",
+                        background: "#12a150",
+                        flexShrink: 0,
+                      }}
                     />
-                    <SearchResults results={sourceResults} onSelect={onSourceSelect} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <input
+                        aria-label="Source"
+                        placeholder="Choose starting point"
+                        value={sourceQuery}
+                        onChange={(e) => onSourceSearch(e.target.value)}
+                        style={searchInputStyle}
+                      />
+                      <SearchResults results={sourceResults} onSelect={onSourceSelect} />
+                    </div>
                   </div>
 
-                  <div>
-                    <input
-                      aria-label="Destination"
-                      placeholder="Choose destination"
-                      value={destQuery}
-                      onChange={(e) => onDestSearch(e.target.value)}
-                      style={searchInputStyle}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 3,
+                        background: "#dc534a",
+                        flexShrink: 0,
+                      }}
                     />
-                    <SearchResults results={destResults} onSelect={onDestSelect} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <input
+                        aria-label="Destination"
+                        placeholder="Choose destination"
+                        value={destQuery}
+                        onChange={(e) => onDestSearch(e.target.value)}
+                        style={searchInputStyle}
+                      />
+                      <SearchResults results={destResults} onSelect={onDestSelect} />
+                    </div>
                   </div>
                 </div>
 
@@ -1951,7 +1972,7 @@ const [showFloors, setShowFloors] = useState(false);
                     <div
                       style={{
                         display: "flex",
-                        alignItems: "center",
+                        alignItems: "baseline",
                         gap: 8,
                         minWidth: 0,
                       }}
@@ -1975,11 +1996,20 @@ const [showFloors, setShowFloors] = useState(false);
                       >
                         {routeSummary.distance}
                       </span>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flexShrink: 0,
+                      }}
+                    >
                       <button
                         type="button"
                         onClick={onOpenSteps}
                         style={{
-                          marginLeft: 8,
                           height: 40,
                           minWidth: 76,
                           borderRadius: 8,
@@ -1990,30 +2020,28 @@ const [showFloors, setShowFloors] = useState(false);
                           fontWeight: 800,
                           cursor: "pointer",
                           whiteSpace: "nowrap",
-                          flexShrink: 0,
                         }}
                       >
                         Steps
                       </button>
+                      <button
+                        type="button"
+                        onClick={onStartNavigation}
+                        style={{
+                          height: 40,
+                          minWidth: 96,
+                          borderRadius: 8,
+                          border: "none",
+                          background: "#2f57d6",
+                          color: "#fff",
+                          fontWeight: 900,
+                          cursor: "pointer",
+                          boxShadow: "0 10px 22px rgba(47, 87, 214, 0.28)",
+                        }}
+                      >
+                        Start
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={onStartNavigation}
-                      style={{
-                        height: 40,
-                        minWidth: 96,
-                        borderRadius: 8,
-                        border: "none",
-                        background: "#2f57d6",
-                        color: "#fff",
-                        fontWeight: 900,
-                        cursor: "pointer",
-                        boxShadow: "0 10px 22px rgba(47, 87, 214, 0.28)",
-                        flexShrink: 0,
-                      }}
-                    >
-                      Start
-                    </button>
                   </div>
                 </div>
               )}
@@ -2152,7 +2180,7 @@ const [showFloors, setShowFloors] = useState(false);
         </div>
       )}
 
-      {venueData?.floors?.length > 1 && (
+      {new Set(venueData?.floors || []).size > 1 && (
       <div className="floor-selector-container">
         <div
       style={{
@@ -2188,8 +2216,8 @@ const [showFloors, setShowFloors] = useState(false);
               {/* {[...venueData.floors].reverse().map((f) => ( */}
               {(
       typeof window !== "undefined" && window.innerWidth > 768
-        ? [...venueData.floors].reverse() // desktop
-        : [...venueData.floors]           // mobile
+        ? [...new Set(venueData.floors)].reverse() // desktop
+        : [...new Set(venueData.floors)]           // mobile
     ).map((f) => (
                 <button
                   key={f}

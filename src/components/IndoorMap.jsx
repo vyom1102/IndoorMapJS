@@ -100,8 +100,9 @@ const formatDistance = (meters) => {
 };
 
 const formatMinutes = (meters) => {
-  if (!Number.isFinite(meters) || meters <= 0) return "0 minutes";
-  return `${Math.max(1, Math.round(meters / 80))} minutes`;
+  if (!Number.isFinite(meters) || meters <= 0) return "0 min";
+  const mins = Math.max(1, Math.round(meters / 80));
+  return `${mins} min`;
 };
 
 const getFloorLabel = (value) => {
