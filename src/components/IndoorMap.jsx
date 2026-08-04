@@ -351,6 +351,7 @@ export default function IndoorMap() {
     mapRef,
     containerRef,
     ready,
+    venueArrived,
     geo,
     setGeo,
     floor,
@@ -1067,7 +1068,9 @@ const baseOffset =
         id: `floor_${floorIndex}_rooms`,
         type: "fill-extrusion",
         source: `floor_${floorIndex}_rooms`,
-        minzoom: 14,
+        // Starts where the boundary-label band (15–16) ends: that band shows the
+        // building outline and its name only, with no interior detail.
+        minzoom: 16,
         paint: {
           "fill-extrusion-color": [
             "case",
@@ -1309,6 +1312,7 @@ const baseOffset =
             id: `section-label-${floorIndex}`,
             type: "symbol",
             source: `section-label-src-${floorIndex}`,
+            // Same band as the 3D section blocks — the label names the block it sits on.
             minzoom: 16,
             maxzoom: 17,
             layout: {
@@ -1318,8 +1322,14 @@ const baseOffset =
               "icon-text-fit": "none",
               "text-field": ["get", "name"],
               "text-size": 12,
-              "text-anchor": "left",
-              "text-offset": [1.2, 0],
+              // With a logo the name sits to its right; without one it centres on the section.
+              "text-anchor": ["case", ["!=", ["get", "icon"], ""], "left", "center"],
+              "text-offset": [
+                "case",
+                ["!=", ["get", "icon"], ""],
+                ["literal", [1.2, 0]],
+                ["literal", [0, 0]],
+              ],
               "text-allow-overlap": true,
               "text-ignore-placement": true,
               "icon-allow-overlap": true,
@@ -1376,7 +1386,22 @@ const baseOffset =
 
         const pointImagePlanes = await buildPointImagePlanes(imagedPoints, loadTexture, polygonLookup,baseOffset);
         if (!isCurrentRender()) return;
-        if (pointImagePlanes.length) addTrackedLogoLayer(`point-image-3d-${floorIndex}`, pointImagePlanes);
+        if (pointImagePlanes.length) {
+          const pointImageLayerId = `point-image-3d-${floorIndex}`;
+          addTrackedLogoLayer(pointImageLayerId, pointImagePlanes);
+          // Room roof labels are unreadable clutter until you are inside the venue.
+          const updatePointImageVisibility = () => {
+            if (!map.getLayer(pointImageLayerId)) return;
+            map.setLayoutProperty(
+              pointImageLayerId,
+              "visibility",
+              map.getZoom() >= 17 ? "visible" : "none"
+            );
+          };
+          updatePointImageVisibility();
+          map.on("zoom", updatePointImageVisibility);
+          zoomHandlers.push(updatePointImageVisibility);
+        }
       }
     } // end floorsToRender loop
 
@@ -2399,6 +2424,37 @@ useEffect(() => {
     });
   }
 }, [selectedCategories, ready]);
+
+// Basemap (CARTO) place/room labels compete with the boundary name in the 15–16
+// band. Hide them while the boundary label is up; restore them above it.
+useEffect(() => {
+  const map = mapRef.current;
+  if (!map || !ready) return;
+
+  // Captured at `ready`, before any app layer exists — so this is basemap only.
+  const basemapSymbolIds = (map.getStyle()?.layers || [])
+    .filter((layer) => layer.type === "symbol")
+    .map((layer) => layer.id);
+
+  const applyLabelVisibility = () => {
+    const zoom = map.getZoom();
+    const boundaryLabelVisible = zoom >= 15 && zoom < 16;
+
+    basemapSymbolIds.forEach((id) => {
+      if (!map.getLayer(id)) return;
+      map.setLayoutProperty(
+        id,
+        "visibility",
+        boundaryLabelVisible ? "none" : "visible"
+      );
+    });
+  };
+
+  applyLabelVisibility();
+  map.on("zoom", applyLabelVisibility);
+
+  return () => map.off("zoom", applyLabelVisibility);
+}, [ready]);
   // Search handlers
   const handleSourceSearch = async (val) => {
     setSourceQuery(val);
@@ -2457,10 +2513,12 @@ setDestSelected(true);
   );
 };
   
-// ?source=<featureId>&destination=<featureId> — preselect either end once the venue is loaded.
+// ?source=<featureId>&destination=<featureId> — preselect either end, but only after the
+// venue fly-in has landed, so the selection's flyTo doesn't cut the opening animation short.
 const urlPlacesAppliedRef = useRef(false);
 useEffect(() => {
-  if (!ready || !geo?.features?.length || urlPlacesAppliedRef.current) return;
+  if (!ready || !venueArrived || !geo?.features?.length || urlPlacesAppliedRef.current)
+    return;
 
   const params = new URLSearchParams(window.location.search);
   const sourceItem = findPlaceById(geo, params.get("source"));
@@ -2479,7 +2537,7 @@ useEffect(() => {
     }
     if (destItem) await handleSelectDest(destItem);
   })();
-}, [ready, geo]);
+}, [ready, venueArrived, geo]);
 
 const handleSetTappedAsDest = () => {
     console.log("Tapped to set destination:", tappedFeature);

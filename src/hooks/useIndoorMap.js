@@ -21,6 +21,7 @@ import {
   getDefaultVenueCenter,
   VENUE_LOAD_ZOOM,
   VENUE_PITCH,
+  VENUE_BEARING,
   VENUE_MIN_ZOOM,
   VENUE_FLY_DURATION_MS,
   OVERVIEW_MIN_ZOOM,
@@ -39,6 +40,8 @@ export function useIndoorMap(venueName = "DelhiMetro") {
   const [sourceResults, setSourceResults] = useState([]);
   const [destResults, setDestResults] = useState([]);
   const [routeRevision, setRouteRevision] = useState(0);
+  /** True once the overview → venue fly-in has landed; nothing should move the camera before that */
+  const [venueArrived, setVenueArrived] = useState(false);
 
   const markersRef = useRef([]);
   const sourceRef = useRef(null);
@@ -64,6 +67,7 @@ export function useIndoorMap(venueName = "DelhiMetro") {
     setDestQuery("");
     setSourceResults([]);
     setDestResults([]);
+    setVenueArrived(false);
     routePathRef.current = [];
     graphRef.current = null;
     sourceFloorRef.current = null;
@@ -78,6 +82,7 @@ export function useIndoorMap(venueName = "DelhiMetro") {
         center: DEFAULT_MAP_CENTER,
         zoom: DEFAULT_MAP_ZOOM,
         pitch: OVERVIEW_PITCH,
+        bearing: 0, // reset, so the venue fly-in always lands on VENUE_BEARING
       });
     }
 
@@ -109,8 +114,15 @@ export function useIndoorMap(venueName = "DelhiMetro") {
           center: [center.lng, center.lat],
           zoom: VENUE_LOAD_ZOOM,
           pitch: VENUE_PITCH,
+          bearing: VENUE_BEARING,
           duration: VENUE_FLY_DURATION_MS,
           essential: true,
+        });
+
+        // The fly-in owns the camera until it lands (or the user grabs the map,
+        // which also ends the flight) — only then may anything else fly.
+        map.once("moveend", () => {
+          if (!cancelled) setVenueArrived(true);
         });
 
         // Only now is it safe to raise the zoom floor — doing it earlier would
@@ -421,6 +433,7 @@ export function useIndoorMap(venueName = "DelhiMetro") {
     mapRef,
     containerRef,
     ready,
+    venueArrived,
     geo,
     setGeo,
     floor,

@@ -1,5 +1,36 @@
 import maplibregl from "maplibre-gl";
 
+// Green source pin with a "You are here" caption hanging off its tip.
+const createSourceMarker = (map, coords) => {
+  const marker = new maplibregl.Marker({ color: "green" })
+    .setLngLat(coords)
+    .addTo(map);
+
+  const label = document.createElement("div");
+  label.textContent = "You are here";
+
+  Object.assign(label.style, {
+    position: "absolute",
+    top: "100%",
+    left: "50%",
+    transform: "translateX(-50%)",
+    marginTop: "2px",
+    padding: "2px 8px",
+    borderRadius: "10px",
+    background: "rgba(255, 255, 255, 0.95)",
+    color: "#14532d",
+    fontSize: "11px",
+    fontWeight: "700",
+    whiteSpace: "nowrap",
+    boxShadow: "0 4px 10px rgba(0, 0, 0, 0.18)",
+    pointerEvents: "none",
+  });
+
+  marker.getElement().appendChild(label);
+
+  return marker;
+};
+
 const routeAfterFloorUpdate = (handleRouting) => {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
@@ -91,11 +122,7 @@ export const selectSource = async (
     }
 
     if (!sourceRef.current) {
-      sourceRef.current = new maplibregl.Marker({
-        color: "green",
-      })
-        .setLngLat(coords)
-        .addTo(map);
+      sourceRef.current = createSourceMarker(map, coords);
     } else {
       sourceRef.current.setLngLat(coords);
       updateMarkerVisibilityForFloor(targetFloor);
@@ -130,11 +157,7 @@ export const selectSource = async (
   }
 
   if (!sourceRef.current) {
-    sourceRef.current = new maplibregl.Marker({
-      color: "green",
-    })
-      .setLngLat(coords)
-      .addTo(map);
+    sourceRef.current = createSourceMarker(map, coords);
   } else {
     sourceRef.current.setLngLat(coords);
     updateMarkerVisibilityForFloor(targetFloor);

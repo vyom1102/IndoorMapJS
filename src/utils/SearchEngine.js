@@ -298,10 +298,14 @@ export const searchPlaces = async (
           ""
       ).toLowerCase();
 
-    const name =
+    const rawName =
       String(
         p.name || ""
-      ).toLowerCase();
+      ).trim();
+
+    // lowercased for matching only — display keeps rawName's casing
+    const name =
+      rawName.toLowerCase();
 
     const shouldIgnore =
       type.includes("waypoint") ||
@@ -394,9 +398,9 @@ export const searchPlaces = async (
       matchedText:
         matchedKeyword ||
         renderName ||
-        name,
+        rawName,
       actualName:
-        renderName || name,
+        renderName || rawName,
       floorLabel,
     });
 

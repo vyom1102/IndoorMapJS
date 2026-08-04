@@ -10,8 +10,11 @@ export const VENUE_LOAD_ZOOM = 18;
 /** Pitch for the country-level opening view — flat reads better than tilted */
 export const OVERVIEW_PITCH = 0;
 
-/** Pitch used at venue level, where the 3D extrusions matter */
-export const VENUE_PITCH = 60;
+/** Pitch used at venue level — flat top-down view */
+export const VENUE_PITCH = 0;
+
+/** Bearing at venue level: the map opens rotated 180° from the overview's 0° */
+export const VENUE_BEARING = 180;
 
 /**
  * Lower bound on zoom, applied only *after* the venue fly-in.
